@@ -285,7 +285,7 @@ impl App {
     }
 
     fn id_bar(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label("Commit ID:");
             let r = ui.add(TextEdit::singleline(&mut self.id_text).id(Id::unique(ID_EDIT)).font(egui::TextStyle::Monospace).desired_width(330.0));
             if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
@@ -306,7 +306,7 @@ impl App {
     }
 
     fn find_bar(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             let find = ui.button("Find").clicked();
             if ui.button("↓").clicked() || find {
                 self.find(true, true);
@@ -597,16 +597,16 @@ fn draw_graph_cell(ui: &mut egui::Ui, c: &gr::Commit, segs: &[Seg], bold: bool) 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.keys(ui.ctx());
-        let h = ui.available_height();
+        let w = ui.available_width();
         Panel::left("locations").resizable(true).default_size(230.0).show(ui, |ui| self.sidebar(ui));
-        Panel::top("list").resizable(true).default_size(h * 0.5).min_size(100.0).show(ui, |ui| {
+        Panel::left("list").resizable(true).default_size(w * 0.35).min_size(200.0).show(ui, |ui| {
             Panel::bottom("bars").resizable(false).show(ui, |ui| {
                 self.id_bar(ui);
                 self.find_bar(ui);
             });
             egui::CentralPanel::no_frame().show(ui, |ui| self.commit_list(ui));
         });
-        Panel::right("files").resizable(true).default_size(250.0).show(ui, |ui| self.file_list(ui));
+        Panel::left("files").resizable(true).default_size(200.0).show(ui, |ui| self.file_list(ui));
         egui::CentralPanel::default_margins().show(ui, |ui| {
             self.diff_bar(ui);
             self.diff_view(ui);
@@ -626,7 +626,7 @@ fn main() {
         }
     };
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_title(repo.title()).with_inner_size([1100.0, 800.0]),
+        viewport: egui::ViewportBuilder::default().with_title(repo.title()).with_inner_size([1600.0, 900.0]),
         ..Default::default()
     };
     let res = eframe::run_native(
