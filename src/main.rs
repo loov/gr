@@ -683,11 +683,19 @@ fn main() {
         options,
         Box::new(|cc| {
             let mut fonts = egui::FontDefinitions::default();
-            for (name, data) in [("lyth", &include_bytes!("../fonts/LythMono-Regular.ttf")[..]), ("bold", include_bytes!("../fonts/LythMono-Bold.ttf"))] {
-                fonts.font_data.insert(name.into(), Arc::new(egui::FontData::from_static(data)));
+            fonts.font_data.insert("regular".into(), Arc::new(egui::FontData::from_static(include_bytes!("../fonts/LythMono-Regular.ttf"))));
+            fonts.font_data.insert("bold".into(), Arc::new(egui::FontData::from_static(include_bytes!("../fonts/LythMono-Bold.ttf"))));
+            // Menlo ships with macOS but may not be redistributed, so load it
+            // from the system and keep Lyth Mono for other platforms.
+            if let Ok(menlo) = std::fs::read("/System/Library/Fonts/Menlo.ttc") {
+                for (name, index) in [("regular", 0), ("bold", 1)] {
+                    let mut f = egui::FontData::from_owned(menlo.clone());
+                    f.index = index;
+                    fonts.font_data.insert(name.into(), Arc::new(f));
+                }
             }
             for fam in [FontFamily::Proportional, FontFamily::Monospace] {
-                fonts.families.entry(fam).or_default().insert(0, "lyth".into());
+                fonts.families.entry(fam).or_default().insert(0, "regular".into());
             }
             let bold = std::iter::once("bold".into()).chain(fonts.families[&FontFamily::Proportional].clone()).collect();
             fonts.families.insert(FontFamily::Name("bold".into()), bold);
