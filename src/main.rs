@@ -522,7 +522,13 @@ impl App {
         let w = (widest + 8.0).min(diff.width() * 0.4);
         // clear of the diff's vertical scroll bar
         let pos = diff.right_top() + Vec2::new(-18.0, 6.0);
-        egui::Area::new(Id::unique("files")).pivot(egui::Align2::RIGHT_TOP).fixed_pos(pos).show(ctx, |ui| {
+        let id = Id::unique("files");
+        // see-through once the diff scrolls under it, solid again under the pointer
+        let hovered = ctx.memory(|m| m.area_rect(id)).zip(ctx.input(|i| i.pointer.hover_pos())).is_some_and(|(r, p)| r.contains(p));
+        let target = if self.diff_off.y > 0.0 && !hovered { 0.3 } else { 1.0 };
+        let opacity = ctx.animate_value_with_time(id, target, 0.15);
+        egui::Area::new(id).pivot(egui::Align2::RIGHT_TOP).fixed_pos(pos).show(ctx, |ui| {
+            ui.set_opacity(opacity);
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 // the area sizes itself from the last frame, which can cut the last
