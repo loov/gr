@@ -525,7 +525,10 @@ impl App {
         egui::Area::new(Id::unique("files")).pivot(egui::Align2::RIGHT_TOP).fixed_pos(pos).show(ctx, |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
-                egui::ScrollArea::vertical().id_salt("files").max_height(diff.height() * 0.4).show_rows(ui, ROW_H, files.len(), |ui, range| {
+                // the area sizes itself from the last frame, which can cut the last
+                // row when the file count changes, so give the height outright
+                let h = (files.len() as f32 * ROW_H).min(diff.height() * 0.4);
+                egui::ScrollArea::vertical().id_salt("files").min_scrolled_height(h).max_height(h).show_rows(ui, ROW_H, files.len(), |ui, range| {
                     for (i, (name, line)) in files.iter().enumerate().take(range.end).skip(range.start) {
                         let color = ui.visuals().text_color();
                         let g = galley(ui.painter(), name, font(13.0, false), color);
