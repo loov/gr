@@ -274,9 +274,9 @@ impl App {
         let typed = |s: &str| ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(t) if t == s)));
         // keep the focusing keystroke out of the entry
         let drop_text = || ctx.input_mut(|i| i.events.retain(|e| !matches!(e, egui::Event::Text(_))));
-        if pressed(Key::P) || pressed(Key::K) {
+        if pressed(Key::P) {
             self.select(self.sel.saturating_sub(1), true);
-        } else if pressed(Key::N) || pressed(Key::J) {
+        } else if pressed(Key::N) {
             self.select((self.sel + 1).min(last), true);
         } else if pressed(Key::Home) {
             self.select(0, true);
