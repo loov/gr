@@ -510,25 +510,37 @@ impl App {
         }
     }
 
-    fn file_list(&mut self, ui: &mut egui::Ui) {
+    /// The file list, floating over the top-right corner of the diff in `diff`.
+    fn file_list(&mut self, ctx: &egui::Context, diff: Rect) {
         let cur = self.details.file_at(self.top_line());
         let mut jump = None;
-        ui.spacing_mut().item_spacing.y = 0.0;
         let files = &self.details.files;
-        egui::ScrollArea::both().id_salt("files").auto_shrink(false).show_rows(ui, ROW_H, files.len(), |ui, range| {
-            for (i, (name, line)) in files.iter().enumerate().take(range.end).skip(range.start) {
-                let color = ui.visuals().text_color();
-                let g = galley(ui.painter(), name, font(13.0, false), color);
-                let w = ui.available_width().max(g.size().x + 8.0);
-                let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, ROW_H), Sense::click());
-                if i == cur {
-                    ui.painter().rect_filled(rect, 0.0, ui.visuals().selection.bg_fill);
-                }
-                paint_text(ui.painter(), rect.left() + 4.0, rect.center().y, g, color);
-                if resp.clicked() {
-                    jump = Some(*line);
-                }
-            }
+        if files.is_empty() {
+            return;
+        }
+        let widest = files.iter().map(|(name, _)| ctx.fonts_mut(|f| f.layout_no_wrap(name.clone(), font(13.0, false), Color32::WHITE).size().x)).fold(0.0, f32::max);
+        let w = (widest + 8.0).min(diff.width() * 0.4);
+        // clear of the diff's vertical scroll bar
+        let pos = diff.right_top() + Vec2::new(-18.0, 6.0);
+        egui::Area::new(Id::unique("files")).pivot(egui::Align2::RIGHT_TOP).fixed_pos(pos).show(ctx, |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                egui::ScrollArea::vertical().id_salt("files").max_height(diff.height() * 0.4).show_rows(ui, ROW_H, files.len(), |ui, range| {
+                    for (i, (name, line)) in files.iter().enumerate().take(range.end).skip(range.start) {
+                        let color = ui.visuals().text_color();
+                        let g = galley(ui.painter(), name, font(13.0, false), color);
+                        let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, ROW_H), Sense::click());
+                        if i == cur {
+                            ui.painter().rect_filled(rect, 0.0, ui.visuals().selection.bg_fill);
+                        }
+                        // long names are cut at the list's edge
+                        ui.painter().with_clip_rect(rect).galley(Pos2::new(rect.left() + 4.0, rect.center().y - g.size().y / 2.0), g, color);
+                        if resp.clicked() {
+                            jump = Some(*line);
+                        }
+                    }
+                });
+            });
         });
         if let Some(line) = jump {
             self.scroll_diff(line as f32 * ROW_H);
@@ -703,11 +715,8 @@ impl eframe::App for App {
                 self.diff_left = left;
                 ui.ctx().request_repaint();
             }
-            // fits its rows, scrolls past 30% of the column; not resizable,
-            // since egui would persist the fitted size over a dragged one
-            let fit = self.details.files.len() as f32 * ROW_H + 8.0;
-            Panel::top("files").exact_size(fit.min(ui.available_height() * 0.3)).show(ui, |ui| self.file_list(ui));
             self.diff_view(ui);
+            self.file_list(ui.ctx(), ui.max_rect());
         });
     }
 }
