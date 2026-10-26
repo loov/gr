@@ -8,12 +8,29 @@ use egui_extras::{Column, TableBuilder};
 use gr::{Details, DiffOpts, Field, Hit, History, Mode, Query, RefKind, Repo, Rgb, Seg, Visit, REMOTE_PREFIX_BG};
 
 const ROW_H: f32 = 18.0;
-const SEL_BG: Color32 = Color32::from_gray(0xd9);
 const ID_EDIT: &str = "commit_id";
 const FIND_EDIT: &str = "find";
 
 fn rgb(c: Rgb) -> Color32 {
     Color32::from_rgb(c[0], c[1], c[2])
+}
+
+/// A core colour adapted to the theme: in dark mode HSL lightness is
+/// inverted, so pale backgrounds turn dark and black text turns white.
+fn bg(ui: &egui::Ui, c: Rgb) -> Color32 {
+    if !ui.visuals().dark_mode {
+        return rgb(c);
+    }
+    let (lo, hi) = (*c.iter().min().unwrap() as i16, *c.iter().max().unwrap() as i16);
+    let shift = 255 - hi - lo;
+    rgb(c.map(|v| (v as i16 + shift) as u8))
+}
+
+/// Like `bg`, but lifted towards white in dark mode so saturated colours
+/// such as pure blue stay readable on a dark background.
+fn fg(ui: &egui::Ui, c: Rgb) -> Color32 {
+    let col = bg(ui, c);
+    if ui.visuals().dark_mode { col.lerp_to_gamma(Color32::WHITE, 0.35) } else { col }
 }
 
 fn galley(p: &Painter, text: &str, font: FontId, color: Color32) -> Arc<Galley> {
@@ -357,8 +374,9 @@ impl App {
                     row.col(|ui| {
                         let rect = ui.max_rect();
                         let p = ui.painter();
-                        let g = galley(p, text, font(13.0, bold), Color32::BLACK);
-                        paint_text(p, rect.left() + 2.0, rect.center().y, g, Color32::BLACK);
+                        let color = ui.visuals().text_color();
+                        let g = galley(p, text, font(13.0, bold), color);
+                        paint_text(p, rect.left() + 2.0, rect.center().y, g, color);
                     });
                 }
                 if row.response().clicked() {
@@ -402,10 +420,10 @@ impl App {
                 let sense = if line.link.is_some() { Sense::click() } else { Sense::hover() };
                 let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, ROW_H), sense);
                 let p = ui.painter();
-                if let Some(bg) = line.style.bg {
-                    p.rect_filled(rect, 0.0, rgb(bg));
+                if let Some(bg_c) = line.style.bg {
+                    p.rect_filled(rect, 0.0, bg(ui, bg_c));
                 }
-                let fg = rgb(line.style.fg);
+                let fg = fg(ui, line.style.fg);
                 let g = galley(p, &line.text, font(12.0, line.style.bold), fg);
                 let tw = paint_text(p, rect.left() + 4.0, rect.center().y, g, fg);
                 if let Some(row) = line.link {
@@ -432,13 +450,14 @@ impl App {
         let files = &self.details.files;
         egui::ScrollArea::both().id_salt("files").auto_shrink(false).show_rows(ui, ROW_H, files.len(), |ui, range| {
             for (i, (name, line)) in files.iter().enumerate().take(range.end).skip(range.start) {
-                let g = galley(ui.painter(), name, font(13.0, false), Color32::BLACK);
+                let color = ui.visuals().text_color();
+                let g = galley(ui.painter(), name, font(13.0, false), color);
                 let w = ui.available_width().max(g.size().x + 8.0);
                 let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, ROW_H), Sense::click());
                 if i == cur {
-                    ui.painter().rect_filled(rect, 0.0, SEL_BG);
+                    ui.painter().rect_filled(rect, 0.0, ui.visuals().selection.bg_fill);
                 }
-                paint_text(ui.painter(), rect.left() + 4.0, rect.center().y, g, Color32::BLACK);
+                paint_text(ui.painter(), rect.left() + 4.0, rect.center().y, g, color);
                 if resp.clicked() {
                     jump = Some(*line);
                 }
@@ -465,17 +484,18 @@ impl App {
 fn draw_graph_cell(ui: &mut egui::Ui, c: &gr::Commit, segs: &[Seg], bold: bool) {
     let rect = ui.max_rect();
     let p = ui.painter();
+    let text = ui.visuals().text_color();
     let x0 = rect.left() + 3.0 + ROW_H / 2.0;
     let pt = |x: f32, y: f32| Pos2::new(x0 + x * ROW_H, rect.top() + y * ROW_H);
     let thick = (ROW_H / 9.0).floor() + 1.0;
     for s in segs {
-        p.line_segment([pt(s.x0, s.y0), pt(s.x1, s.y1)], Stroke::new(thick, rgb(s.color)));
+        p.line_segment([pt(s.x0, s.y0), pt(s.x1, s.y1)], Stroke::new(thick, fg(ui, s.color)));
     }
     let node = pt(c.lane as f32, 0.5);
     let mut x = x0 + c.width.max(1) as f32 * ROW_H - ROW_H / 2.0 + 4.0;
     let y = rect.center().y;
     if !c.refs.is_empty() {
-        p.hline(node.x..=x, y, Stroke::new(1.0, Color32::BLACK));
+        p.hline(node.x..=x, y, Stroke::new(1.0, text));
         for r in &c.refs {
             let (bg, fg) = r.colors();
             let g = galley(p, &r.name, font(11.0, r.current), rgb(fg));
@@ -493,8 +513,8 @@ fn draw_graph_cell(ui: &mut egui::Ui, c: &gr::Commit, segs: &[Seg], bold: bool) 
         }
     }
     p.circle(node, ROW_H / 3.0, rgb(c.node_fill), Stroke::new(1.0, Color32::BLACK));
-    let g = galley(p, c.subject(), font(13.0, bold), Color32::BLACK);
-    paint_text(p, x, y, g, Color32::BLACK);
+    let g = galley(p, c.subject(), font(13.0, bold), text);
+    paint_text(p, x, y, g, text);
 }
 
 impl eframe::App for App {
@@ -545,14 +565,18 @@ fn main() {
             let bold = std::iter::once("bold".into()).chain(fonts.families[&FontFamily::Proportional].clone()).collect();
             fonts.families.insert(FontFamily::Name("bold".into()), bold);
             cc.egui_ctx.set_fonts(fonts);
-            let mut v = egui::Visuals::light();
-            v.override_text_color = Some(Color32::BLACK);
-            v.panel_fill = Color32::WHITE;
-            v.widgets.inactive.bg_stroke = Stroke::new(1.0, Color32::from_gray(160));
-            v.selection.bg_fill = SEL_BG;
-            v.selection.stroke = Stroke::new(1.0, Color32::BLACK);
-            cc.egui_ctx.set_theme(egui::Theme::Light);
-            cc.egui_ctx.set_visuals_of(egui::Theme::Light, v);
+            // egui follows the system light/dark setting by default
+            for (theme, mut v, text, panel, stroke, sel) in [
+                (egui::Theme::Light, egui::Visuals::light(), 0x00, 0xff, 160, 0xd9),
+                (egui::Theme::Dark, egui::Visuals::dark(), 0xe6, 0x1e, 90, 0x45),
+            ] {
+                v.override_text_color = Some(Color32::from_gray(text));
+                v.panel_fill = Color32::from_gray(panel);
+                v.widgets.inactive.bg_stroke = Stroke::new(1.0, Color32::from_gray(stroke));
+                v.selection.bg_fill = Color32::from_gray(sel);
+                v.selection.stroke = Stroke::new(1.0, Color32::from_gray(text));
+                cc.egui_ctx.set_visuals_of(theme, v);
+            }
             Ok(Box::new(App::new(repo)))
         }),
     );
