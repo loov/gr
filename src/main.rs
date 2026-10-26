@@ -650,7 +650,8 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.keys(ui.ctx());
         let w = ui.available_width();
-        Panel::top("toolbar").show(ui, |ui| self.toolbar(ui));
+        let frame = egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(12, 8));
+        Panel::top("toolbar").frame(frame).show(ui, |ui| self.toolbar(ui));
         Panel::left("locations").resizable(true).default_size(230.0).show(ui, |ui| self.sidebar(ui));
         Panel::left("list").resizable(true).default_size(w * 0.35).min_size(200.0).show(ui, |ui| {
             self.commit_list(ui);
