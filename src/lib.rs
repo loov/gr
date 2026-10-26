@@ -1,6 +1,7 @@
 //! Core of the viewer: loading history, graph layout,
 //! commit details/diffs, find, goto and navigation history.
 
+mod annotations;
 mod details;
 mod find;
 mod graph;
@@ -13,6 +14,7 @@ use std::io::{self, BufRead, BufReader, Read};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
+pub use annotations::Annotations;
 pub use details::{DiffOpts, Details, Kind, Line, Style};
 pub use find::{Field, Hit, Mode, Query};
 pub use graph::Seg;
@@ -444,6 +446,12 @@ impl Repo {
                 RefKind::Other => 3,
             });
         }
+    }
+
+    /// Annotations from `gr.info` in the git dir, shared by all worktrees.
+    pub fn annotations(&self) -> io::Result<Annotations> {
+        let dir = git(&self.cwd, &["rev-parse", "--git-common-dir"])?;
+        Annotations::load(self.cwd.join(dir.trim()).join("gr.info"))
     }
 
     /// Branches, tags and the like, for the sidebar.

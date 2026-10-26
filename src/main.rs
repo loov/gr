@@ -5,7 +5,7 @@ use eframe::egui::{
     Id, Pos2, Rect, Sense, Stroke, TextEdit, Vec2,
 };
 use egui_extras::{Column, TableBuilder};
-use gr::{Details, Location, Locations, DiffOpts, Field, Hit, History, Mode, Query, RefKind, Repo, Rgb, Seg, Visit, REMOTE_PREFIX_BG};
+use gr::{Annotations, Details, Location, Locations, DiffOpts, Field, Hit, History, Mode, Query, RefKind, Repo, Rgb, Seg, Visit, REMOTE_PREFIX_BG};
 
 const ROW_H: f32 = 18.0;
 /// Commit list rows hold two lines: subject, then committer and date.
@@ -84,6 +84,7 @@ fn paint_text(p: &Painter, x: f32, y: f32, g: Arc<Galley>, color: Color32) -> f3
 struct App {
     repo: Repo,
     locs: Locations,
+    notes: Annotations,
     sel: usize,
     details: Details,
     opts: DiffOpts,
@@ -109,8 +110,13 @@ struct App {
 impl App {
     fn new(repo: Repo) -> App {
         let sel = repo.head_row.unwrap_or(0);
+        let (notes, status) = match repo.annotations() {
+            Ok(n) => (n, String::new()),
+            Err(e) => (Annotations::default(), format!("gr.info: {e}")),
+        };
         let mut app = App {
             locs: repo.locations(),
+            notes,
             repo,
             sel,
             // filled by select below
@@ -134,6 +140,8 @@ impl App {
             max_cols: 0,
         };
         app.select(sel, true);
+        // select clears the status, so report a bad gr.info after it
+        app.status = status;
         app
     }
 
@@ -184,6 +192,10 @@ impl App {
             Ok((repo, row)) => {
                 self.repo = repo;
                 self.locs = self.repo.locations();
+                match self.repo.annotations() {
+                    Ok(n) => self.notes = n,
+                    Err(e) => self.status = format!("gr.info: {e}"),
+                }
                 self.history = History::default();
                 self.select(row, true);
             }
@@ -278,6 +290,8 @@ impl App {
             self.select(self.sel.saturating_sub(1), true);
         } else if pressed(Key::N) {
             self.select((self.sel + 1).min(last), true);
+        } else if pressed(Key::K) {
+            self.toggle_note("ok");
         } else if pressed(Key::Home) {
             self.select(0, true);
         } else if pressed(Key::End) {
@@ -314,6 +328,17 @@ impl App {
             let top = self.top_line();
             let prev = self.details.files.iter().rev().map(|f| f.1).find(|&l| l < top);
             self.scroll_diff(prev.unwrap_or(0) as f32 * ROW_H);
+        }
+    }
+
+    /// Toggles `tag` on the selected commit.
+    fn toggle_note(&mut self, tag: &str) {
+        let c = &self.repo.commits[self.sel];
+        if c.is_fake() {
+            return;
+        }
+        if let Err(e) = self.notes.toggle(c.id(), tag) {
+            self.status = format!("gr.info: {e}");
         }
     }
 
@@ -408,7 +433,7 @@ impl App {
         } else if let Some(off) = self.list_scroll.take() {
             table = table.vertical_scroll_offset(off);
         }
-        let (repo, sel, query) = (&self.repo, self.sel, &self.query);
+        let (repo, sel, query, notes) = (&self.repo, self.sel, &self.query, &self.notes);
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
         let out = table.body(|body| {
             body.rows(LIST_H, repo.commits.len(), |mut row| {
@@ -416,7 +441,7 @@ impl App {
                 let c = &repo.commits[i];
                 let hit = query.as_ref().map_or(Hit::No, |q| q.hit(c));
                 row.set_selected(i == sel);
-                row.col(|ui| draw_commit_cell(ui, c, &repo.segs(i), hit != Hit::No, now));
+                row.col(|ui| draw_commit_cell(ui, c, &repo.segs(i), hit != Hit::No, notes.has(c.id(), "ok"), now));
                 if row.response().clicked() {
                     clicked = Some(i);
                 }
@@ -596,7 +621,7 @@ fn location_row(ui: &mut egui::Ui, name: &str, loc: &Location, cur: &str, go: &m
 
 /// A commit list row: graph, refs and subject on the first line;
 /// committer and short date on the second.
-fn draw_commit_cell(ui: &mut egui::Ui, c: &gr::Commit, segs: &[Seg], bold: bool, now: i64) {
+fn draw_commit_cell(ui: &mut egui::Ui, c: &gr::Commit, segs: &[Seg], bold: bool, ok: bool, now: i64) {
     let rect = ui.max_rect();
     let p = ui.painter();
     let text = ui.visuals().text_color();
@@ -639,12 +664,17 @@ fn draw_commit_cell(ui: &mut egui::Ui, c: &gr::Commit, segs: &[Seg], bold: bool,
     let weak = ui.visuals().weak_text_color();
     let y2 = y + ROW_H;
     let date = galley(p, &c.committer_date_short(now), font(12.0, false), weak);
-    let date_x = rect.right() - date.size().x - 6.0;
+    let mut date_x = rect.right() - date.size().x - 6.0;
+    paint_text(p, date_x, y2, date, weak);
+    if ok {
+        let g = galley(p, "✓ ok", font(12.0, true), fg(ui, [0, 0x98, 0]));
+        date_x -= g.size().x + 8.0;
+        paint_text(p, date_x, y2, g, fg(ui, [0, 0x98, 0]));
+    }
     let name = galley(p, c.committer_name(), font(12.0, false), weak);
     // keep the name from running under the date
     p.with_clip_rect(Rect::from_x_y_ranges(rect.left()..=date_x - 8.0, rect.y_range()))
         .galley(Pos2::new(text_x, y2 - name.size().y / 2.0), name, weak);
-    paint_text(p, date_x, y2, date, weak);
 }
 
 impl eframe::App for App {
