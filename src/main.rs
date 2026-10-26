@@ -101,6 +101,8 @@ struct App {
     diff_anim: Option<(f32, f32, f64)>,
     diff_off: Vec2,
     diff_h: f32,
+    /// Left edge of the diff column last frame; the bottom bar lines up with it.
+    diff_left: f32,
     list_h: f32,
     list_off: f32,
     list_scroll: Option<f32>,
@@ -134,6 +136,7 @@ impl App {
             diff_anim: None,
             diff_off: Vec2::ZERO,
             diff_h: 0.0,
+            diff_left: 0.0,
             list_h: 0.0,
             list_off: 0.0,
             list_scroll: None,
@@ -683,16 +686,27 @@ impl eframe::App for App {
         let w = ui.available_width();
         let frame = egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(12, 8));
         Panel::top("toolbar").frame(frame).show(ui, |ui| self.toolbar(ui));
+        Panel::bottom("statusbar").frame(frame).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.add_space((self.diff_left - ui.cursor().left()).max(0.0));
+                self.diff_bar(ui);
+            });
+        });
         Panel::left("locations").resizable(true).default_size(230.0).show(ui, |ui| self.sidebar(ui));
         Panel::left("list").resizable(true).default_size(w * 0.35).min_size(200.0).show(ui, |ui| {
             self.commit_list(ui);
         });
         egui::CentralPanel::default_margins().show(ui, |ui| {
+            let left = ui.max_rect().left();
+            if left != self.diff_left {
+                // the bottom bar used the old edge this frame
+                self.diff_left = left;
+                ui.ctx().request_repaint();
+            }
             // fits its rows, scrolls past 30% of the column; not resizable,
             // since egui would persist the fitted size over a dragged one
             let fit = self.details.files.len() as f32 * ROW_H + 8.0;
             Panel::top("files").exact_size(fit.min(ui.available_height() * 0.3)).show(ui, |ui| self.file_list(ui));
-            self.diff_bar(ui);
             self.diff_view(ui);
         });
     }
