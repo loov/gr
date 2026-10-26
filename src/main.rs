@@ -19,11 +19,40 @@ fn rgb(c: Rgb) -> Color32 {
     Color32::from_rgb(c[0], c[1], c[2])
 }
 
-/// A core colour adapted to the theme: in dark mode HSL lightness is
-/// inverted, so pale backgrounds turn dark and black text turns white.
+/// Dark theme: the Gruvbox Dark palette (MIT).
+const DARK_BG: Color32 = Color32::from_rgb(0x28, 0x28, 0x28);
+const DARK_TEXT: Color32 = Color32::from_rgb(0xeb, 0xdb, 0xb2);
+
+/// Gruvbox stand-ins for the core's gitk colours: graph palette, diff
+/// colours and node fills.
+fn gruvbox(c: Rgb) -> Option<Color32> {
+    let hex = |h: u32| Color32::from_rgb((h >> 16) as u8, (h >> 8) as u8, h as u8);
+    Some(hex(match c {
+        [0, 255, 0] | [0, 0x98, 0] | [0, 0x90, 0] => 0xb8bb26,
+        [255, 0, 0] | [0xc3, 0, 0] => 0xfb4934,
+        [0, 0, 255] => 0x83a598,
+        [255, 0, 255] | [160, 32, 240] => 0xd3869b,
+        [0xff, 0xa5, 0] => 0xfe8019,
+        [255, 255, 0] => 0xfabd2f,
+        [0xa9, 0xa9, 0xa9] => 0x928374,
+        [0xa5, 0x2a, 0x2a] => 0xd65d0e,
+        [0, 0, 0] => 0xebdbb2,
+        // diff backgrounds: deleted, added, file header
+        [0xff, 0xf3, 0xf3] => 0x3c2c2b,
+        [0xf0, 0xff, 0xf0] => 0x363728,
+        [0xaa, 0xaa, 0xaa] => 0x504945,
+        _ => return None,
+    }))
+}
+
+/// A core colour adapted to the theme. In dark mode known colours map to
+/// Gruvbox, others get their HSL lightness inverted.
 fn bg(ui: &egui::Ui, c: Rgb) -> Color32 {
     if !ui.visuals().dark_mode {
         return rgb(c);
+    }
+    if let Some(m) = gruvbox(c) {
+        return m;
     }
     let (lo, hi) = (*c.iter().min().unwrap() as i16, *c.iter().max().unwrap() as i16);
     let shift = 255 - hi - lo;
@@ -34,7 +63,7 @@ fn bg(ui: &egui::Ui, c: Rgb) -> Color32 {
 /// such as pure blue stay readable on a dark background.
 fn fg(ui: &egui::Ui, c: Rgb) -> Color32 {
     let col = bg(ui, c);
-    if ui.visuals().dark_mode { col.lerp_to_gamma(Color32::WHITE, 0.35) } else { col }
+    if ui.visuals().dark_mode && gruvbox(c).is_none() { col.lerp_to_gamma(Color32::WHITE, 0.35) } else { col }
 }
 
 fn galley(p: &Painter, text: &str, font: FontId, color: Color32) -> Arc<Galley> {
@@ -289,7 +318,7 @@ impl App {
     }
 
     fn id_bar(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal_wrapped(|ui| {
+        ui.horizontal(|ui| {
             ui.label("Commit ID:");
             let r = ui.add(TextEdit::singleline(&mut self.id_text).id(Id::unique(ID_EDIT)).font(egui::TextStyle::Monospace).desired_width(330.0));
             if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
@@ -305,12 +334,25 @@ impl App {
                 self.forward();
             }
             ui.label(format!("Row {} / {}", self.sel + 1, self.repo.commits.len()));
-            ui.colored_label(Color32::RED, &self.status);
+        });
+    }
+
+    fn toolbar(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            self.id_bar(ui);
+            ui.separator();
+            self.find_bar(ui);
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                egui::widgets::global_theme_preference_buttons(ui);
+                ui.separator();
+                let err = ui.visuals().error_fg_color;
+                ui.add(egui::Label::new(RichText::new(&self.status).color(err)).truncate());
+            });
         });
     }
 
     fn find_bar(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal_wrapped(|ui| {
+        ui.horizontal(|ui| {
             let find = ui.button("Find").clicked();
             if ui.button("↓").clicked() || find {
                 self.find(true, true);
@@ -608,13 +650,10 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.keys(ui.ctx());
         let w = ui.available_width();
+        Panel::top("toolbar").show(ui, |ui| self.toolbar(ui));
         Panel::left("locations").resizable(true).default_size(230.0).show(ui, |ui| self.sidebar(ui));
         Panel::left("list").resizable(true).default_size(w * 0.35).min_size(200.0).show(ui, |ui| {
-            Panel::bottom("bars").resizable(false).show(ui, |ui| {
-                self.id_bar(ui);
-                self.find_bar(ui);
-            });
-            egui::CentralPanel::no_frame().show(ui, |ui| self.commit_list(ui));
+            self.commit_list(ui);
         });
         Panel::left("files").resizable(true).default_size(200.0).show(ui, |ui| self.file_list(ui));
         egui::CentralPanel::default_margins().show(ui, |ui| {
@@ -653,18 +692,31 @@ fn main() {
             let bold = std::iter::once("bold".into()).chain(fonts.families[&FontFamily::Proportional].clone()).collect();
             fonts.families.insert(FontFamily::Name("bold".into()), bold);
             cc.egui_ctx.set_fonts(fonts);
-            // egui follows the system light/dark setting by default
-            for (theme, mut v, text, panel, stroke, sel) in [
-                (egui::Theme::Light, egui::Visuals::light(), 0x00, 0xff, 160, 0xd9),
-                (egui::Theme::Dark, egui::Visuals::dark(), 0xe6, 0x1e, 90, 0x45),
-            ] {
-                v.override_text_color = Some(Color32::from_gray(text));
-                v.panel_fill = Color32::from_gray(panel);
-                v.widgets.inactive.bg_stroke = Stroke::new(1.0, Color32::from_gray(stroke));
-                v.selection.bg_fill = Color32::from_gray(sel);
-                v.selection.stroke = Stroke::new(1.0, Color32::from_gray(text));
-                cc.egui_ctx.set_visuals_of(theme, v);
-            }
+            // egui follows the system light/dark setting until the toolbar overrides it
+            let mut v = egui::Visuals::light();
+            v.override_text_color = Some(Color32::BLACK);
+            v.panel_fill = Color32::WHITE;
+            v.widgets.inactive.bg_stroke = Stroke::new(1.0, Color32::from_gray(160));
+            v.selection.bg_fill = Color32::from_gray(0xd9);
+            v.selection.stroke = Stroke::new(1.0, Color32::BLACK);
+            cc.egui_ctx.set_visuals_of(egui::Theme::Light, v);
+
+            let mut v = egui::Visuals::dark();
+            v.override_text_color = Some(DARK_TEXT);
+            v.weak_text_color = Some(Color32::from_rgb(0x92, 0x83, 0x74));
+            v.panel_fill = DARK_BG;
+            v.window_fill = DARK_BG;
+            v.faint_bg_color = Color32::from_rgb(0x32, 0x30, 0x2f);
+            v.extreme_bg_color = Color32::from_rgb(0x1d, 0x20, 0x21);
+            v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, Color32::from_rgb(0x3c, 0x38, 0x36));
+            v.widgets.inactive.weak_bg_fill = Color32::from_rgb(0x3c, 0x38, 0x36);
+            v.widgets.inactive.bg_fill = Color32::from_rgb(0x3c, 0x38, 0x36);
+            v.widgets.inactive.bg_stroke = Stroke::new(1.0, Color32::from_rgb(0x66, 0x5c, 0x54));
+            v.selection.bg_fill = Color32::from_rgb(0x50, 0x49, 0x45);
+            v.selection.stroke = Stroke::new(1.0, DARK_TEXT);
+            v.hyperlink_color = Color32::from_rgb(0x83, 0xa5, 0x98);
+            v.error_fg_color = Color32::from_rgb(0xfb, 0x49, 0x34);
+            cc.egui_ctx.set_visuals_of(egui::Theme::Dark, v);
             Ok(Box::new(App::new(repo)))
         }),
     );
