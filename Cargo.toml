@@ -10,5 +10,12 @@ libc = "0.2"
 eframe = { version = "0.37", features = ["persistence"] }
 egui_extras = "0.37"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+muda = { version = "0.17", default-features = false }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+muda = { version = "0.17", default-features = false }
+raw-window-handle = "0.6"
+
 [patch.crates-io]
 winit = { path = "vendor/winit" }

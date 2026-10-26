@@ -4,6 +4,8 @@ use eframe::egui::{
     self, Align, CollapsingHeader, Color32, RichText, ComboBox, FontFamily, FontId, Galley, Key, Layout, Painter, Panel,
     Id, Pos2, Rect, Sense, Stroke, TextEdit, Vec2,
 };
+mod menu;
+
 use egui_extras::{Column, TableBuilder};
 use gr::{Annotations, Details, Location, Locations, DiffOpts, Field, Hit, History, Mode, Query, RefKind, Repo, Rgb, Seg, Visit, REMOTE_PREFIX_BG};
 
@@ -109,10 +111,12 @@ struct App {
     max_cols: usize,
     /// A git command from the Git menu, running in the background.
     job: Option<std::thread::JoinHandle<Result<(), String>>>,
+    /// The OS menu bar; None where the menu is drawn with egui.
+    native: Option<menu::Native>,
 }
 
 impl App {
-    fn new(repo: Repo) -> App {
+    fn new(repo: Repo, native: Option<menu::Native>) -> App {
         let sel = repo.head_row.unwrap_or(0);
         let (notes, status) = match repo.annotations() {
             Ok(n) => (n, String::new()),
@@ -144,6 +148,7 @@ impl App {
             list_scroll: None,
             max_cols: 0,
             job: None,
+            native,
         };
         app.select(sel, true);
         // select clears the status, so report a bad gr.info after it
@@ -211,6 +216,9 @@ impl App {
 
     /// Starts `git args` in the background; `poll_job` reloads when it ends.
     fn run_git(&mut self, ctx: &egui::Context, args: &'static [&'static str]) {
+        if let Some(n) = &self.native {
+            n.set_enabled(false);
+        }
         let (dir, ctx) = (self.repo.dir.clone(), ctx.clone());
         self.job = Some(std::thread::spawn(move || {
             let out = std::process::Command::new("git")
@@ -234,30 +242,12 @@ impl App {
             return;
         }
         let res = self.job.take().unwrap().join().unwrap_or_else(|_| Err("git thread panicked".into()));
+        if let Some(n) = &self.native {
+            n.set_enabled(true);
+        }
         self.reload();
         if let Err(e) = res {
             self.status = e;
-        }
-    }
-
-    fn git_menu(&mut self, ui: &mut egui::Ui) {
-        let idle = self.job.is_none();
-        ui.add_enabled_ui(idle, |ui| {
-            ui.menu_button("Git", |ui| {
-                let items: [(&str, &'static [&'static str]); 3] = [
-                    ("Fetch all", &["fetch", "--all", "--prune"]),
-                    ("Pull", &["pull"]),
-                    ("Rebase onto upstream", &["rebase", "@{upstream}"]),
-                ];
-                for (label, args) in items {
-                    if ui.button(label).clicked() {
-                        self.run_git(ui.ctx(), args);
-                    }
-                }
-            });
-        });
-        if !idle {
-            ui.spinner();
         }
     }
 
@@ -422,8 +412,9 @@ impl App {
 
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            self.git_menu(ui);
-            ui.separator();
+            if self.job.is_some() {
+                ui.spinner();
+            }
             self.id_bar(ui);
             ui.separator();
             self.find_bar(ui);
@@ -777,6 +768,13 @@ impl eframe::App for App {
         self.poll_job();
         self.keys(ui.ctx());
         let w = ui.available_width();
+        let mut clicked = self.native.as_ref().and_then(|n| n.clicked());
+        if self.native.is_none() {
+            Panel::top("menubar").show(ui, |ui| clicked = menu::egui_bar(ui, self.job.is_none()));
+        }
+        if let Some(i) = clicked.filter(|_| self.job.is_none()) {
+            self.run_git(ui.ctx(), menu::GIT[i].1);
+        }
         let frame = egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(12, 8));
         Panel::top("toolbar").frame(frame).show(ui, |ui| self.toolbar(ui));
         Panel::bottom("statusbar").frame(frame).show(ui, |ui| {
@@ -864,7 +862,7 @@ fn main() {
             v.hyperlink_color = Color32::from_rgb(0x83, 0xa5, 0x98);
             v.error_fg_color = Color32::from_rgb(0xfb, 0x49, 0x34);
             cc.egui_ctx.set_visuals_of(egui::Theme::Dark, v);
-            Ok(Box::new(App::new(repo)))
+            Ok(Box::new(App::new(repo, menu::Native::new(cc))))
         }),
     );
     if let Err(e) = res {
