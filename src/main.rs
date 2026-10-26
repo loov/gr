@@ -10,6 +10,8 @@ use gr::{Details, Location, Locations, DiffOpts, Field, Hit, History, Mode, Quer
 const ROW_H: f32 = 18.0;
 /// Commit list rows hold two lines: subject, then committer and date.
 const LIST_H: f32 = 2.0 * ROW_H;
+/// Horizontal distance between graph lanes.
+const LANE_W: f32 = 9.0;
 const ID_EDIT: &str = "commit_id";
 const FIND_EDIT: &str = "find";
 
@@ -555,18 +557,18 @@ fn draw_commit_cell(ui: &mut egui::Ui, c: &gr::Commit, segs: &[Seg], bold: bool,
     let rect = ui.max_rect();
     let p = ui.painter();
     let text = ui.visuals().text_color();
-    let x0 = rect.left() + 3.0 + ROW_H / 2.0;
+    let x0 = rect.left() + 3.0 + LANE_W / 2.0;
     // the node sits on the first line, so stretch the lower half of the graph
     let pt = |x: f32, y: f32| {
         let py = if y <= 0.5 { y * ROW_H } else { ROW_H / 2.0 + (y - 0.5) * 2.0 * (rect.height() - ROW_H / 2.0) };
-        Pos2::new(x0 + x * ROW_H, rect.top() + py)
+        Pos2::new(x0 + x * LANE_W, rect.top() + py)
     };
-    let thick = (ROW_H / 9.0).floor() + 1.0;
+    let thick = 1.5;
     for s in segs {
         p.line_segment([pt(s.x0, s.y0), pt(s.x1, s.y1)], Stroke::new(thick, fg(ui, s.color)));
     }
     let node = pt(c.lane as f32, 0.5);
-    let text_x = x0 + c.width.max(1) as f32 * ROW_H - ROW_H / 2.0 + 4.0;
+    let text_x = x0 + c.width.max(1) as f32 * LANE_W - LANE_W / 2.0 + 6.0;
     let mut x = text_x;
     let y = node.y;
     if !c.refs.is_empty() {
@@ -587,7 +589,7 @@ fn draw_commit_cell(ui: &mut egui::Ui, c: &gr::Commit, segs: &[Seg], bold: bool,
             x += w + 4.0;
         }
     }
-    p.circle(node, ROW_H / 3.0, fg(ui, c.node_fill), Stroke::new(1.0, Color32::BLACK));
+    p.circle(node, 3.5, fg(ui, c.node_fill), Stroke::new(1.0, Color32::BLACK));
     let g = galley(p, c.subject(), font(13.0, bold), text);
     paint_text(p, x, y, g, text);
 
