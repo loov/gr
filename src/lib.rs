@@ -256,7 +256,7 @@ fn git_differs(dir: &PathBuf, args: &[&str]) -> bool {
 
 impl Repo {
     /// Loads the whole history synchronously; `log_args` are passed to
-    /// `git log` (default `HEAD`).
+    /// `git log` (default `--all`, so every branch in the sidebar is listed).
     // Synchronous load; stream in the background if huge repos (>100k commits) matter.
     pub fn open(dir: impl Into<PathBuf>, log_args: &[String]) -> io::Result<Repo> {
         let cwd: PathBuf = dir.into();
@@ -279,9 +279,9 @@ impl Repo {
             None => (log_args, vec![]),
         };
         let revs: Vec<&str> = revs.iter().map(String::as_str).filter(|a| !breaks_parsing(a)).collect();
-        let default_head = revs.iter().all(|a| a.starts_with('-'));
-        if default_head {
-            args.push("HEAD");
+        let default_revs = revs.iter().all(|a| a.starts_with('-'));
+        if default_revs {
+            args.push("--all");
         }
         args.extend(revs);
         args.push("--");
@@ -295,10 +295,10 @@ impl Repo {
             let side = s.spawn(|| Side::read(&cwd, &paths));
             (git_log(&cwd, &args), side.join().unwrap())
         });
-        let mut commits = match commits {
-            Err(_) if default_head && side.head.is_empty() => return Err(io::Error::other("no commits yet")),
-            c => c?,
-        };
+        let mut commits = commits?;
+        if commits.is_empty() && default_revs && side.head.is_empty() {
+            return Err(io::Error::other("no commits yet"));
+        }
         if commits.is_empty() {
             return Err(io::Error::other("No commits selected"));
         }
@@ -652,7 +652,7 @@ mod tests {
         // run from core/, so "src" means core/src
         let dir = env!("CARGO_MANIFEST_DIR");
         let r = Repo::open(dir, &["--".into(), "src".into()]).unwrap();
-        let want = git(&PathBuf::from(dir), &["log", "--format=%H", "--", "src"]).unwrap();
+        let want = git(&PathBuf::from(dir), &["log", "--topo-order", "--all", "--format=%H", "--", "src"]).unwrap();
         let got: Vec<&str> = r.commits.iter().filter(|c| !c.is_fake()).map(|c| c.id()).collect();
         assert_eq!(got, want.lines().collect::<Vec<_>>());
         let sel = r.commits.len() - 1;
