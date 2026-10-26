@@ -7,7 +7,7 @@ edition = "2021"
 [dependencies]
 regex = "1"
 libc = "0.2"
-eframe = "0.37"
+eframe = { version = "0.37", features = ["persistence"] }
 egui_extras = "0.37"
 
 [patch.crates-io]
