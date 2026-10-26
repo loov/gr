@@ -512,7 +512,7 @@ fn draw_graph_cell(ui: &mut egui::Ui, c: &gr::Commit, segs: &[Seg], bold: bool) 
             x += w + 4.0;
         }
     }
-    p.circle(node, ROW_H / 3.0, rgb(c.node_fill), Stroke::new(1.0, Color32::BLACK));
+    p.circle(node, ROW_H / 3.0, fg(ui, c.node_fill), Stroke::new(1.0, Color32::BLACK));
     let g = galley(p, c.subject(), font(13.0, bold), text);
     paint_text(p, x, y, g, text);
 }
