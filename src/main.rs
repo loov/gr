@@ -492,7 +492,9 @@ impl App {
                 let tw = g.size().x;
                 // a selectable label, so text can be selected across lines and copied
                 let text_rect = Rect::from_center_size(Pos2::new(rect.left() + 4.0 + tw / 2.0, rect.center().y), g.size());
-                let resp = ui.put(text_rect, egui::Label::new(g).selectable(true));
+                // a child ui, unlike ui.put, leaves the row cursor alone; put
+                // moved it up to the label's bottom and the rows overlapped
+                let resp = ui.new_child(egui::UiBuilder::new().max_rect(text_rect)).add(egui::Label::new(g).selectable(true));
                 if let Some(row) = line.link {
                     let y = rect.center().y + 7.0;
                     ui.painter().hline(rect.left() + 4.0..=rect.left() + 4.0 + tw, y, Stroke::new(1.0, fg));
