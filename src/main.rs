@@ -655,8 +655,11 @@ impl eframe::App for App {
         Panel::left("list").resizable(true).default_size(w * 0.35).min_size(200.0).show(ui, |ui| {
             self.commit_list(ui);
         });
-        Panel::left("files").resizable(true).default_size(200.0).show(ui, |ui| self.file_list(ui));
         egui::CentralPanel::default_margins().show(ui, |ui| {
+            // fits its rows, scrolls past 30% of the column; not resizable,
+            // since egui would persist the fitted size over a dragged one
+            let fit = self.details.files.len() as f32 * ROW_H + 8.0;
+            Panel::top("files").exact_size(fit.min(ui.available_height() * 0.3)).show(ui, |ui| self.file_list(ui));
             self.diff_bar(ui);
             self.diff_view(ui);
         });
