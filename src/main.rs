@@ -107,6 +107,8 @@ struct App {
     list_off: f32,
     list_scroll: Option<f32>,
     max_cols: usize,
+    /// A git command from the Git menu, running in the background.
+    job: Option<std::thread::JoinHandle<Result<(), String>>>,
 }
 
 impl App {
@@ -141,6 +143,7 @@ impl App {
             list_off: 0.0,
             list_scroll: None,
             max_cols: 0,
+            job: None,
         };
         app.select(sel, true);
         // select clears the status, so report a bad gr.info after it
@@ -203,6 +206,58 @@ impl App {
                 self.select(row, true);
             }
             Err(e) => self.status = e.to_string(),
+        }
+    }
+
+    /// Starts `git args` in the background; `poll_job` reloads when it ends.
+    fn run_git(&mut self, ctx: &egui::Context, args: &'static [&'static str]) {
+        let (dir, ctx) = (self.repo.dir.clone(), ctx.clone());
+        self.job = Some(std::thread::spawn(move || {
+            let out = std::process::Command::new("git")
+                .current_dir(dir)
+                .args(args)
+                // fail instead of waiting for a password nobody can type
+                .env("GIT_TERMINAL_PROMPT", "0")
+                .stdin(std::process::Stdio::null())
+                .output();
+            ctx.request_repaint();
+            match out {
+                Ok(o) if o.status.success() => Ok(()),
+                Ok(o) => Err(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+                Err(e) => Err(format!("git: {e}")),
+            }
+        }));
+    }
+
+    fn poll_job(&mut self) {
+        if !self.job.as_ref().is_some_and(|j| j.is_finished()) {
+            return;
+        }
+        let res = self.job.take().unwrap().join().unwrap_or_else(|_| Err("git thread panicked".into()));
+        self.reload();
+        if let Err(e) = res {
+            self.status = e;
+        }
+    }
+
+    fn git_menu(&mut self, ui: &mut egui::Ui) {
+        let idle = self.job.is_none();
+        ui.add_enabled_ui(idle, |ui| {
+            ui.menu_button("Git", |ui| {
+                let items: [(&str, &'static [&'static str]); 3] = [
+                    ("Fetch all", &["fetch", "--all", "--prune"]),
+                    ("Pull", &["pull"]),
+                    ("Rebase onto upstream", &["rebase", "@{upstream}"]),
+                ];
+                for (label, args) in items {
+                    if ui.button(label).clicked() {
+                        self.run_git(ui.ctx(), args);
+                    }
+                }
+            });
+        });
+        if !idle {
+            ui.spinner();
         }
     }
 
@@ -367,6 +422,8 @@ impl App {
 
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
+            self.git_menu(ui);
+            ui.separator();
             self.id_bar(ui);
             ui.separator();
             self.find_bar(ui);
@@ -717,6 +774,7 @@ fn draw_commit_cell(ui: &mut egui::Ui, c: &gr::Commit, segs: &[Seg], bold: bool,
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.poll_job();
         self.keys(ui.ctx());
         let w = ui.available_width();
         let frame = egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(12, 8));
