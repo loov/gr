@@ -4,6 +4,7 @@
 mod details;
 mod find;
 mod graph;
+mod locations;
 mod reach;
 
 use std::cell::{OnceCell, RefCell};
@@ -15,6 +16,7 @@ use std::process::{Command, Stdio};
 pub use details::{DiffOpts, Details, Kind, Line, Style};
 pub use find::{Field, Hit, Mode, Query};
 pub use graph::Seg;
+pub use locations::{Location, Locations};
 
 pub type Rgb = [u8; 3];
 
@@ -414,6 +416,11 @@ impl Repo {
                 RefKind::Other => 3,
             });
         }
+    }
+
+    /// Branches, tags and the like, for the sidebar.
+    pub fn locations(&self) -> Locations {
+        Locations::read(&self.cwd)
     }
 
     /// Window title, "<repo>: All files - gitk".

@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use eframe::egui::{
-    self, Align, Color32, ComboBox, FontFamily, FontId, Galley, Key, Layout, Painter, Panel,
+    self, Align, CollapsingHeader, Color32, RichText, ComboBox, FontFamily, FontId, Galley, Key, Layout, Painter, Panel,
     Id, Pos2, Rect, Sense, Stroke, TextEdit, Vec2,
 };
 use egui_extras::{Column, TableBuilder};
-use gr::{Details, DiffOpts, Field, Hit, History, Mode, Query, RefKind, Repo, Rgb, Seg, Visit, REMOTE_PREFIX_BG};
+use gr::{Details, Location, Locations, DiffOpts, Field, Hit, History, Mode, Query, RefKind, Repo, Rgb, Seg, Visit, REMOTE_PREFIX_BG};
 
 const ROW_H: f32 = 18.0;
 const ID_EDIT: &str = "commit_id";
@@ -50,6 +50,7 @@ fn paint_text(p: &Painter, x: f32, y: f32, g: Arc<Galley>, color: Color32) -> f3
 
 struct App {
     repo: Repo,
+    locs: Locations,
     sel: usize,
     details: Details,
     opts: DiffOpts,
@@ -76,6 +77,7 @@ impl App {
     fn new(repo: Repo) -> App {
         let sel = repo.head_row.unwrap_or(0);
         let mut app = App {
+            locs: repo.locations(),
             repo,
             sel,
             // filled by select below
@@ -148,6 +150,7 @@ impl App {
         match self.repo.reload(self.sel) {
             Ok((repo, row)) => {
                 self.repo = repo;
+                self.locs = self.repo.locations();
                 self.history = History::default();
                 self.select(row, true);
             }
@@ -468,6 +471,44 @@ impl App {
         }
     }
 
+    fn sidebar(&mut self, ui: &mut egui::Ui) {
+        let mut go = None;
+        let cur = self.repo.commits[self.sel].id();
+        let l = &self.locs;
+        egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+            // (title, entries, nest on '/', open by default)
+            for (title, list, nest, open) in [
+                ("BRANCHES", &l.branches, true, true),
+                ("REMOTES", &l.remotes, true, false),
+                ("TAGS", &l.tags, true, false),
+                ("STASHES", &l.stashes, false, false),
+                ("SUBMODULES", &l.submodules, false, false),
+                ("WORKTREES", &l.worktrees, false, false),
+            ] {
+                let n = if title == "REMOTES" {
+                    list.iter().map(|r| r.name.split('/').next()).collect::<std::collections::HashSet<_>>().len()
+                } else {
+                    list.len()
+                };
+                CollapsingHeader::new(RichText::new(format!("{title} ({n})")).strong()).default_open(open).show(ui, |ui| {
+                    if nest {
+                        location_tree(ui, title, list, 0, title == "BRANCHES", cur, &mut go);
+                    } else {
+                        for loc in list.iter() {
+                            location_row(ui, &loc.name, loc, cur, &mut go);
+                        }
+                    }
+                });
+            }
+        });
+        if let Some(loc) = go {
+            match self.repo.index_of(&loc.id) {
+                Some(row) => self.select(row, true),
+                None => self.status = format!("{} is not in this view", loc.name),
+            }
+        }
+    }
+
     fn diff_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             let opts = self.opts.clone();
@@ -479,6 +520,42 @@ impl App {
             }
         });
     }
+}
+
+/// Rows of `list` (sorted by name) nested on the '/'-separated segment at `depth`.
+fn location_tree(ui: &mut egui::Ui, salt: &str, list: &[Location], depth: usize, open: bool, cur: &str, go: &mut Option<Location>) {
+    let seg = |l: &Location| l.name.split('/').nth(depth).unwrap_or("").to_string();
+    let leaf = |l: &Location| l.name.split('/').count() == depth + 1;
+    let mut i = 0;
+    while i < list.len() {
+        let s = seg(&list[i]);
+        if leaf(&list[i]) {
+            location_row(ui, &s, &list[i], cur, go);
+            i += 1;
+            continue;
+        }
+        // sorted names keep a shared prefix contiguous
+        let n = list[i..].iter().take_while(|l| !leaf(l) && seg(l) == s).count();
+        let path = list[i].name.split('/').take(depth + 1).collect::<Vec<_>>().join("/");
+        CollapsingHeader::new(&s).id_salt((salt, &path)).default_open(open).show(ui, |ui| {
+            location_tree(ui, salt, &list[i..i + n], depth + 1, open, cur, go);
+        });
+        i += n;
+    }
+}
+
+fn location_row(ui: &mut egui::Ui, name: &str, loc: &Location, cur: &str, go: &mut Option<Location>) {
+    ui.horizontal(|ui| {
+        let text = if loc.current { RichText::new(name).strong() } else { RichText::new(name) };
+        if ui.selectable_label(!loc.id.is_empty() && loc.id == cur, text).clicked() && !loc.id.is_empty() {
+            *go = Some(loc.clone());
+        }
+        if let Some((behind, ahead)) = loc.track.filter(|&t| t != (0, 0)) {
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.weak(format!("{behind}↓ {ahead}↑"));
+            });
+        }
+    });
 }
 
 fn draw_graph_cell(ui: &mut egui::Ui, c: &gr::Commit, segs: &[Seg], bold: bool) {
@@ -521,6 +598,7 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.keys(ui.ctx());
         let h = ui.available_height();
+        Panel::left("locations").resizable(true).default_size(230.0).show(ui, |ui| self.sidebar(ui));
         Panel::top("list").resizable(true).default_size(h * 0.5).min_size(100.0).show(ui, |ui| {
             Panel::bottom("bars").resizable(false).show(ui, |ui| {
                 self.id_bar(ui);
