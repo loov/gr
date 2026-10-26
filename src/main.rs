@@ -455,18 +455,19 @@ impl App {
         let out = sa.show_rows(ui, ROW_H, lines.len(), |ui, range| {
             let w = content_w.max(ui.available_width());
             for line in &lines[range] {
-                let sense = if line.link.is_some() { Sense::click() } else { Sense::hover() };
-                let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, ROW_H), sense);
-                let p = ui.painter();
+                let (rect, _) = ui.allocate_exact_size(Vec2::new(w, ROW_H), Sense::hover());
                 if let Some(bg_c) = line.style.bg {
-                    p.rect_filled(rect, 0.0, bg(ui, bg_c));
+                    ui.painter().rect_filled(rect, 0.0, bg(ui, bg_c));
                 }
                 let fg = fg(ui, line.style.fg);
-                let g = galley(p, &line.text, font(12.0, line.style.bold), fg);
-                let tw = paint_text(p, rect.left() + 4.0, rect.center().y, g, fg);
+                let g = galley(ui.painter(), &line.text, font(12.0, line.style.bold), fg);
+                let tw = g.size().x;
+                // a selectable label, so text can be selected across lines and copied
+                let text_rect = Rect::from_center_size(Pos2::new(rect.left() + 4.0 + tw / 2.0, rect.center().y), g.size());
+                let resp = ui.put(text_rect, egui::Label::new(g).selectable(true));
                 if let Some(row) = line.link {
                     let y = rect.center().y + 7.0;
-                    p.hline(rect.left() + 4.0..=rect.left() + 4.0 + tw, y, Stroke::new(1.0, fg));
+                    ui.painter().hline(rect.left() + 4.0..=rect.left() + 4.0 + tw, y, Stroke::new(1.0, fg));
                     if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                         link = Some(row);
                     }
