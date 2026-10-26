@@ -632,17 +632,29 @@ fn location_tree(ui: &mut egui::Ui, salt: &str, list: &[Location], depth: usize,
 }
 
 fn location_row(ui: &mut egui::Ui, name: &str, loc: &Location, cur: &str, go: &mut Option<Location>) {
-    ui.horizontal(|ui| {
-        let text = if loc.current { RichText::new(name).strong() } else { RichText::new(name) };
-        if ui.selectable_label(!loc.id.is_empty() && loc.id == cur, text).clicked() && !loc.id.is_empty() {
-            *go = Some(loc.clone());
-        }
-        if let Some((behind, ahead)) = loc.track.filter(|&t| t != (0, 0)) {
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.weak(format!("{behind}↓ {ahead}↑"));
-            });
-        }
-    });
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW_H), Sense::click());
+    let p = ui.painter();
+    if !loc.id.is_empty() && loc.id == cur {
+        p.rect_filled(rect, 2.0, ui.visuals().selection.bg_fill);
+    } else if resp.hovered() {
+        p.rect_filled(rect, 2.0, ui.visuals().widgets.hovered.weak_bg_fill);
+    }
+    // the counts keep their place on the right; the name is cut short before them
+    let mut right = rect.right() - 4.0;
+    if let Some((behind, ahead)) = loc.track.filter(|&t| t != (0, 0)) {
+        let weak = ui.visuals().weak_text_color();
+        let g = galley(p, &format!("{behind}↓ {ahead}↑"), font(12.0, false), weak);
+        right -= g.size().x;
+        paint_text(p, right, rect.center().y, g, weak);
+        right -= 8.0;
+    }
+    let text = ui.visuals().text_color();
+    let g = galley(p, name, font(13.0, loc.current), text);
+    p.with_clip_rect(Rect::from_x_y_ranges(rect.left()..=right, rect.y_range()))
+        .galley(Pos2::new(rect.left() + 2.0, rect.center().y - g.size().y / 2.0), g, text);
+    if resp.on_hover_text(&loc.name).clicked() && !loc.id.is_empty() {
+        *go = Some(loc.clone());
+    }
 }
 
 /// A commit list row: graph, refs and subject on the first line;
