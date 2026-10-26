@@ -1,0 +1,14 @@
+[package]
+name = "gr"
+version = "0.1.0"
+license = "GPL-3.0-or-later"
+edition = "2021"
+
+[dependencies]
+regex = "1"
+libc = "0.2"
+eframe = "0.37"
+egui_extras = "0.37"
+
+[patch.crates-io]
+winit = { path = "vendor/winit" }
