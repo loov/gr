@@ -52,3 +52,8 @@ Before committing, reread the message and fix these:
 
 Last check: if the sentence would fit unchanged in another project's log,
 it says nothing about this one. Rewrite or cut it.
+
+## Workflow
+
+Commit each change as soon as it is implemented and builds, one commit
+per logical change.
