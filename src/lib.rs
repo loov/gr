@@ -139,6 +139,18 @@ impl Commit {
     pub fn committer_date(&self) -> String {
         if self.is_fake() { String::new() } else { local_time(self.committer_time) }
     }
+    pub fn committer_name(&self) -> &str {
+        let c = self.committer();
+        c.find(" <").map_or(c, |i| &c[..i])
+    }
+    /// Commit time relative to `now`: "14:05" today, "Oct 21" this year,
+    /// else "2024-03-05". Empty for the fake commits.
+    pub fn committer_date_short(&self, now: i64) -> String {
+        if self.is_fake() {
+            return String::new();
+        }
+        short_time(&local_time(self.committer_time), &local_time(now))
+    }
     pub fn body(&self) -> &str {
         self.field(4)
     }
@@ -241,6 +253,22 @@ fn local_time(t: i64) -> String {
         tm.tm_min,
         tm.tm_sec
     )
+}
+
+fn short_time(t: &str, now: &str) -> String {
+    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    if t.len() < 16 || now.len() < 10 {
+        return t.to_string();
+    }
+    if t[..10] == now[..10] {
+        return t[11..16].to_string();
+    }
+    if t[..4] == now[..4] {
+        let m: usize = t[5..7].parse().unwrap_or(1);
+        let d: u32 = t[8..10].parse().unwrap_or(1);
+        return format!("{} {d}", MONTHS[m.clamp(1, 12) - 1]);
+    }
+    t[..10].to_string()
 }
 
 /// Runs a `--quiet` style git command; true when it reports differences (exit 1).
@@ -610,6 +638,14 @@ impl History {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn short_dates() {
+        let now = "2026-10-26 20:13:00";
+        assert_eq!(short_time("2026-10-26 09:05:59", now), "09:05");
+        assert_eq!(short_time("2026-03-05 09:05:59", now), "Mar 5");
+        assert_eq!(short_time("2024-03-05 09:05:59", now), "2024-03-05");
+    }
 
     #[test]
     fn history() {

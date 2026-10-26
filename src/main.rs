@@ -8,6 +8,8 @@ use egui_extras::{Column, TableBuilder};
 use gr::{Details, Location, Locations, DiffOpts, Field, Hit, History, Mode, Query, RefKind, Repo, Rgb, Seg, Visit, REMOTE_PREFIX_BG};
 
 const ROW_H: f32 = 18.0;
+/// Commit list rows hold two lines: subject, then committer and date.
+const LIST_H: f32 = 2.0 * ROW_H;
 const ID_EDIT: &str = "commit_id";
 const FIND_EDIT: &str = "find";
 
@@ -188,15 +190,15 @@ impl App {
         if cmd(Key::G) {
             self.find(true, false);
         }
-        let list_page = (self.list_h - ROW_H).max(ROW_H);
+        let list_page = (self.list_h - LIST_H).max(LIST_H);
         if cmd(Key::Home) {
             self.list_scroll = Some(0.0);
         } else if cmd(Key::End) {
-            self.list_scroll = Some(self.repo.commits.len() as f32 * ROW_H);
+            self.list_scroll = Some(self.repo.commits.len() as f32 * LIST_H);
         } else if cmd(Key::ArrowUp) {
-            self.list_scroll = Some((self.list_off - ROW_H).max(0.0));
+            self.list_scroll = Some((self.list_off - LIST_H).max(0.0));
         } else if cmd(Key::ArrowDown) {
-            self.list_scroll = Some(self.list_off + ROW_H);
+            self.list_scroll = Some(self.list_off + LIST_H);
         } else if cmd(Key::PageUp) {
             self.list_scroll = Some((self.list_off - list_page).max(0.0));
         } else if cmd(Key::PageDown) {
@@ -220,7 +222,7 @@ impl App {
         } else if shift(Key::ArrowDown) {
             self.find(true, false);
         }
-        let page = ((self.list_h / ROW_H) as usize).saturating_sub(1).max(1);
+        let page = ((self.list_h / LIST_H) as usize).saturating_sub(1).max(1);
         let last = self.repo.commits.len().saturating_sub(1);
         let pressed = |k| ctx.input(|i| i.key_pressed(k) && i.modifiers.is_none());
         if pressed(Key::ArrowUp) {
@@ -343,7 +345,6 @@ impl App {
     fn commit_list(&mut self, ui: &mut egui::Ui) {
         let mut clicked = None;
         let scroll_to = std::mem::take(&mut self.scroll_list).then_some(self.sel);
-        let width = ui.available_width();
         ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
         let mut table = TableBuilder::new(ui)
             .id_salt("commits")
@@ -352,13 +353,11 @@ impl App {
             .animate_scrolling(false)
             .auto_shrink(false)
             .cell_layout(Layout::left_to_right(Align::Center))
-            .column(Column::initial(width * 0.55).at_least(100.0).clip(true))
-            .column(Column::initial(width * 0.25).at_least(50.0).clip(true))
-            .column(Column::remainder().at_least(50.0).clip(true));
+            .column(Column::remainder().clip(true));
         if let Some(r) = scroll_to {
             // recentre when far off, otherwise move just enough
-            let rows = (self.list_h / ROW_H) as usize;
-            let list_top = (self.list_off / ROW_H) as usize;
+            let rows = (self.list_h / LIST_H) as usize;
+            let list_top = (self.list_off / LIST_H) as usize;
             let (top, bottom) = (list_top.saturating_sub(rows), list_top + 2 * rows);
             let align = if r < top || r > bottom { Some(Align::Center) } else { None };
             table = table.scroll_to_row(r, align);
@@ -366,22 +365,14 @@ impl App {
             table = table.vertical_scroll_offset(off);
         }
         let (repo, sel, query) = (&self.repo, self.sel, &self.query);
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
         let out = table.body(|body| {
-            body.rows(ROW_H, repo.commits.len(), |mut row| {
+            body.rows(LIST_H, repo.commits.len(), |mut row| {
                 let i = row.index();
                 let c = &repo.commits[i];
                 let hit = query.as_ref().map_or(Hit::No, |q| q.hit(c));
                 row.set_selected(i == sel);
-                row.col(|ui| draw_graph_cell(ui, c, &repo.segs(i), hit != Hit::No));
-                for (text, bold) in [(c.author_name(), hit == Hit::Author), (&*c.author_date(), false)] {
-                    row.col(|ui| {
-                        let rect = ui.max_rect();
-                        let p = ui.painter();
-                        let color = ui.visuals().text_color();
-                        let g = galley(p, text, font(13.0, bold), color);
-                        paint_text(p, rect.left() + 2.0, rect.center().y, g, color);
-                    });
-                }
+                row.col(|ui| draw_commit_cell(ui, c, &repo.segs(i), hit != Hit::No, now));
                 if row.response().clicked() {
                     clicked = Some(i);
                 }
@@ -558,19 +549,26 @@ fn location_row(ui: &mut egui::Ui, name: &str, loc: &Location, cur: &str, go: &m
     });
 }
 
-fn draw_graph_cell(ui: &mut egui::Ui, c: &gr::Commit, segs: &[Seg], bold: bool) {
+/// A commit list row: graph, refs and subject on the first line;
+/// committer and short date on the second.
+fn draw_commit_cell(ui: &mut egui::Ui, c: &gr::Commit, segs: &[Seg], bold: bool, now: i64) {
     let rect = ui.max_rect();
     let p = ui.painter();
     let text = ui.visuals().text_color();
     let x0 = rect.left() + 3.0 + ROW_H / 2.0;
-    let pt = |x: f32, y: f32| Pos2::new(x0 + x * ROW_H, rect.top() + y * ROW_H);
+    // the node sits on the first line, so stretch the lower half of the graph
+    let pt = |x: f32, y: f32| {
+        let py = if y <= 0.5 { y * ROW_H } else { ROW_H / 2.0 + (y - 0.5) * 2.0 * (rect.height() - ROW_H / 2.0) };
+        Pos2::new(x0 + x * ROW_H, rect.top() + py)
+    };
     let thick = (ROW_H / 9.0).floor() + 1.0;
     for s in segs {
         p.line_segment([pt(s.x0, s.y0), pt(s.x1, s.y1)], Stroke::new(thick, fg(ui, s.color)));
     }
     let node = pt(c.lane as f32, 0.5);
-    let mut x = x0 + c.width.max(1) as f32 * ROW_H - ROW_H / 2.0 + 4.0;
-    let y = rect.center().y;
+    let text_x = x0 + c.width.max(1) as f32 * ROW_H - ROW_H / 2.0 + 4.0;
+    let mut x = text_x;
+    let y = node.y;
     if !c.refs.is_empty() {
         p.hline(node.x..=x, y, Stroke::new(1.0, text));
         for r in &c.refs {
@@ -592,6 +590,16 @@ fn draw_graph_cell(ui: &mut egui::Ui, c: &gr::Commit, segs: &[Seg], bold: bool) 
     p.circle(node, ROW_H / 3.0, fg(ui, c.node_fill), Stroke::new(1.0, Color32::BLACK));
     let g = galley(p, c.subject(), font(13.0, bold), text);
     paint_text(p, x, y, g, text);
+
+    let weak = ui.visuals().weak_text_color();
+    let y2 = y + ROW_H;
+    let date = galley(p, &c.committer_date_short(now), font(12.0, false), weak);
+    let date_x = rect.right() - date.size().x - 6.0;
+    let name = galley(p, c.committer_name(), font(12.0, false), weak);
+    // keep the name from running under the date
+    p.with_clip_rect(Rect::from_x_y_ranges(rect.left()..=date_x - 8.0, rect.y_range()))
+        .galley(Pos2::new(text_x, y2 - name.size().y / 2.0), name, weak);
+    paint_text(p, date_x, y2, date, weak);
 }
 
 impl eframe::App for App {
