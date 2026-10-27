@@ -14,6 +14,8 @@ pub struct Location {
     pub current: bool,
     /// Commits (behind, ahead) of the upstream branch.
     pub track: Option<(usize, usize)>,
+    /// Branches: ids of the commits not on main or master.
+    pub own: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -39,7 +41,7 @@ impl Locations {
             let [r, id, peeled, head, track] = f[..] else { continue };
             // a tag's peeled id is the commit; plain refs have none
             let id = if peeled.is_empty() { id } else { peeled };
-            let loc = |name: &str| Location { name: name.into(), id: id.into(), current: head == "*", track: parse_track(track) };
+            let loc = |name: &str| Location { name: name.into(), id: id.into(), current: head == "*", track: parse_track(track), ..Default::default() };
             if let Some(b) = r.strip_prefix("refs/heads/") {
                 l.branches.push(loc(b));
             } else if let Some(b) = r.strip_prefix("refs/remotes/") {

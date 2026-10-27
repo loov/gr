@@ -456,7 +456,29 @@ impl Repo {
 
     /// Branches, tags and the like, for the sidebar.
     pub fn locations(&self) -> Locations {
-        Locations::read(&self.cwd)
+        let mut l = Locations::read(&self.cwd);
+        // ponytail: main/master stand in for the default branch; read origin/HEAD if other names matter
+        let base = ["main", "master", "remotes/origin/main", "remotes/origin/master"];
+        let mut on_base = vec![false; self.commits.len()];
+        self.walk(base.iter().filter_map(|b| self.heads.get(*b)), &mut on_base, |_| {});
+        for b in &mut l.branches {
+            let mut seen = on_base.clone();
+            self.walk([&b.id], &mut seen, |c| b.own.push(c.id().to_string()));
+        }
+        l
+    }
+
+    /// Calls `f` on every commit reachable from `tips` and not yet `seen`, marking it seen.
+    fn walk<'a>(&self, tips: impl IntoIterator<Item = &'a String>, seen: &mut [bool], mut f: impl FnMut(&Commit)) {
+        let mut stack: Vec<usize> = tips.into_iter().filter_map(|id| self.index_of(id)).collect();
+        while let Some(i) = stack.pop() {
+            if std::mem::replace(&mut seen[i], true) {
+                continue;
+            }
+            let c = &self.commits[i];
+            f(c);
+            stack.extend(c.parents().filter_map(|p| self.index_of(p)));
+        }
     }
 
     /// Window title, "<repo>: All files - gitk".
@@ -703,6 +725,21 @@ mod tests {
         let (r2, row) = r.reload(sel).unwrap();
         assert_eq!(r2.commits[row].id(), r.commits[sel].id());
         assert_eq!(r2.commits.len(), r.commits.len());
+    }
+
+    #[test]
+    fn branch_own_commits() {
+        let repo = Repo::open(env!("CARGO_MANIFEST_DIR"), &[]).unwrap();
+        let base: Vec<&str> = ["main", "master", "origin/main", "origin/master"].into_iter()
+            .filter(|b| git(&repo.dir, &["rev-parse", "-q", "--verify", b]).is_ok()).collect();
+        for b in repo.locations().branches {
+            let mut args = vec!["rev-list", b.name.as_str(), "--not"];
+            args.extend(&base);
+            let mut want: Vec<String> = git(&repo.dir, &args).unwrap().lines().map(String::from).collect();
+            let mut got = b.own.clone();
+            (want.sort(), got.sort());
+            assert_eq!(got, want, "{}", b.name);
+        }
     }
 
     #[test]

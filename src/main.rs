@@ -609,7 +609,7 @@ impl App {
     fn sidebar(&mut self, ui: &mut egui::Ui) {
         let mut go = None;
         let cur = self.repo.commits[self.sel].id();
-        let l = &self.locs;
+        let (l, notes) = (&self.locs, &self.notes);
         egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
             // (title, entries, nest on '/', open by default)
             for (title, list, nest, open) in [
@@ -627,10 +627,10 @@ impl App {
                 };
                 CollapsingHeader::new(RichText::new(format!("{title} ({n})")).strong()).default_open(open).show(ui, |ui| {
                     if nest {
-                        location_tree(ui, title, list, 0, title == "BRANCHES", cur, &mut go);
+                        location_tree(ui, title, list, 0, title == "BRANCHES", cur, notes, &mut go);
                     } else {
                         for loc in list.iter() {
-                            location_row(ui, &loc.name, loc, cur, &mut go);
+                            location_row(ui, &loc.name, loc, cur, notes, &mut go);
                         }
                     }
                 });
@@ -658,14 +658,14 @@ impl App {
 }
 
 /// Rows of `list` (sorted by name) nested on the '/'-separated segment at `depth`.
-fn location_tree(ui: &mut egui::Ui, salt: &str, list: &[Location], depth: usize, open: bool, cur: &str, go: &mut Option<Location>) {
+fn location_tree(ui: &mut egui::Ui, salt: &str, list: &[Location], depth: usize, open: bool, cur: &str, notes: &Annotations, go: &mut Option<Location>) {
     let seg = |l: &Location| l.name.split('/').nth(depth).unwrap_or("").to_string();
     let leaf = |l: &Location| l.name.split('/').count() == depth + 1;
     let mut i = 0;
     while i < list.len() {
         let s = seg(&list[i]);
         if leaf(&list[i]) {
-            location_row(ui, &s, &list[i], cur, go);
+            location_row(ui, &s, &list[i], cur, notes, go);
             i += 1;
             continue;
         }
@@ -673,13 +673,13 @@ fn location_tree(ui: &mut egui::Ui, salt: &str, list: &[Location], depth: usize,
         let n = list[i..].iter().take_while(|l| !leaf(l) && seg(l) == s).count();
         let path = list[i].name.split('/').take(depth + 1).collect::<Vec<_>>().join("/");
         CollapsingHeader::new(&s).id_salt((salt, &path)).default_open(open).show(ui, |ui| {
-            location_tree(ui, salt, &list[i..i + n], depth + 1, open, cur, go);
+            location_tree(ui, salt, &list[i..i + n], depth + 1, open, cur, notes, go);
         });
         i += n;
     }
 }
 
-fn location_row(ui: &mut egui::Ui, name: &str, loc: &Location, cur: &str, go: &mut Option<Location>) {
+fn location_row(ui: &mut egui::Ui, name: &str, loc: &Location, cur: &str, notes: &Annotations, go: &mut Option<Location>) {
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW_H), Sense::click());
     let p = ui.painter();
     if !loc.id.is_empty() && loc.id == cur {
@@ -694,6 +694,12 @@ fn location_row(ui: &mut egui::Ui, name: &str, loc: &Location, cur: &str, go: &m
         let g = galley(p, &format!("{behind}↓ {ahead}↑"), font(12.0, false), weak);
         right -= g.size().x;
         paint_text(p, right, rect.center().y, g, weak);
+        right -= 8.0;
+    }
+    if !loc.own.is_empty() && loc.own.iter().all(|id| notes.has(id, "ok")) {
+        let g = galley(p, "✓", font(12.0, true), fg(ui, [0, 0x98, 0]));
+        right -= g.size().x;
+        paint_text(p, right, rect.center().y, g, fg(ui, [0, 0x98, 0]));
         right -= 8.0;
     }
     let text = ui.visuals().text_color();
