@@ -20,6 +20,39 @@ pub struct Settings {
     pub light: String,
     pub dark: String,
     pub diff: DiffOpts,
+    pub split: Split,
+}
+
+/// When to show diffs side by side.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Split {
+    /// When the diff has room for two columns of `AUTO_COLS` / 2.
+    Auto,
+    On,
+    Off,
+}
+
+impl Split {
+    pub const ALL: [Split; 3] = [Split::Auto, Split::On, Split::Off];
+    /// Characters the diff needs across for Auto to go side by side.
+    pub const AUTO_COLS: f32 = 160.0;
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Split::Auto => "Auto",
+            Split::On => "On",
+            Split::Off => "Off",
+        }
+    }
+
+    /// Whether to split a diff `cols` characters wide.
+    pub fn on(self, cols: f32) -> bool {
+        match self {
+            Split::Auto => cols >= Self::AUTO_COLS,
+            Split::On => true,
+            Split::Off => false,
+        }
+    }
 }
 
 impl Settings {
@@ -39,7 +72,7 @@ impl Settings {
         diff.ignore_space = flag("ignore_space", diff.ignore_space);
         diff.words = flag("word_diff", diff.words);
         diff.syntax = flag("syntax", diff.syntax);
-        diff.split = flag("side_by_side", diff.split);
+
         Settings {
             open: false,
             query: String::new(),
@@ -48,6 +81,7 @@ impl Settings {
             light: pick(saved("light_theme"), theme::DEFAULT_LIGHT, false),
             dark: pick(saved("dark_theme"), theme::DEFAULT_DARK, true),
             diff,
+            split: saved("side_by_side").and_then(|v| Split::ALL.into_iter().find(|s| s.name() == v)).unwrap_or(Split::Auto),
         }
     }
 
@@ -58,7 +92,7 @@ impl Settings {
         storage.set_string("ignore_space", self.diff.ignore_space.to_string());
         storage.set_string("word_diff", self.diff.words.to_string());
         storage.set_string("syntax", self.diff.syntax.to_string());
-        storage.set_string("side_by_side", self.diff.split.to_string());
+        storage.set_string("side_by_side", self.split.name().to_string());
     }
 
     /// Draws the window while open; returns whether the diff options changed.
@@ -184,7 +218,10 @@ impl Settings {
         const WORDS: (&str, &str) = ("Word Diff", "Mark the words that changed between a removed line and the added line after it.");
         const SYNTAX: (&str, &str) = ("Syntax Highlighting", "Colour keywords, strings, comments and numbers, by the file's extension.");
         let section = hit("Diff");
-        const SPLIT: (&str, &str) = ("Side by Side", "Removed lines on the left, added ones on the right. Also in the bar under the diff.");
+        const SPLIT: (&str, &str) = (
+            "Side by Side",
+            "Removed lines on the left, added ones on the right. Auto does so when the diff has room for 160 characters. Also in the bar under the diff.",
+        );
         let rows = [CONTEXT, SPACE, WORDS, SYNTAX, SPLIT].map(|r| section || hit(r.0) || hit(r.1));
         if rows.contains(&true) {
             heading(ui, "Diff", &mut self.jump);
@@ -202,7 +239,12 @@ impl Settings {
                 row(ui, SYNTAX, |ui| Some(ui.checkbox(&mut self.diff.syntax, "")));
             }
             if rows[4] {
-                row(ui, SPLIT, |ui| Some(ui.checkbox(&mut self.diff.split, "")));
+                row(ui, SPLIT, |ui| {
+                    for s in Split::ALL.into_iter().rev() {
+                        ui.selectable_value(&mut self.split, s, s.name());
+                    }
+                    None
+                });
             }
         }
 

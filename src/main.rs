@@ -106,7 +106,16 @@ struct App {
     locs: Locations,
     notes: Annotations,
     sel: usize,
+    /// The selected commit's details, and as shown: split side by side or not.
+    raw: Details,
     details: Details,
+    split: bool,
+    /// Top of each shown line in the wrapped diff, and the total height;
+    /// laid out for `layout_w`.
+    ys: Vec<f32>,
+    layout_w: f32,
+    /// Diff line to scroll to once the diff is laid out.
+    diff_goto: Option<usize>,
     history: History,
     id_text: String,
     status: String,
@@ -125,8 +134,6 @@ struct App {
     list_h: f32,
     list_off: f32,
     list_scroll: Option<f32>,
-    max_cols: usize,
-    half_cols: usize,
     /// A git command from the Git menu, running in the background.
     job: Option<std::thread::JoinHandle<Result<(), String>>>,
     /// The OS menu bar; None where the menu is drawn with egui.
@@ -159,7 +166,12 @@ impl App {
             repo,
             sel,
             // filled by select below
+            raw: Default::default(),
             details: Default::default(),
+            split: false,
+            ys: vec![],
+            layout_w: 0.0,
+            diff_goto: None,
             history: History::default(),
             id_text: String::new(),
             status: String::new(),
@@ -176,8 +188,6 @@ impl App {
             list_h: 0.0,
             list_off: 0.0,
             list_scroll: None,
-            max_cols: 0,
-            half_cols: 0,
             job: None,
             native,
             settings,
@@ -200,19 +210,22 @@ impl App {
         }
         let row = row.min(self.repo.commits.len() - 1);
         self.sel = row;
-        self.details = self.repo.details(row, &self.settings.diff);
-        // full-width lines, and the wider half of side-by-side ones
-        let lines = &self.details.lines;
-        let len = |l: &gr::Line| l.text.chars().count();
-        self.max_cols = lines.iter().filter(|l| l.right.is_none()).map(len).max().unwrap_or(0);
-        self.half_cols = lines.iter().filter_map(|l| Some(len(l).max(len(l.right.as_ref()?)))).max().unwrap_or(0);
+        self.raw = self.repo.details(row, &self.settings.diff);
+        self.show_details();
         self.id_text = self.repo.commits[row].id().to_string();
         self.status.clear();
         self.scroll_list = true;
-        self.diff_scroll = Some(Vec2::ZERO);
+        self.diff_goto = Some(0);
         if push {
             self.history.push(row);
         }
+    }
+
+    /// Shows `raw`, split side by side when `split` says so.
+    fn show_details(&mut self) {
+        self.details = if self.split { self.raw.clone().split() } else { self.raw.clone() };
+        // laid out again on the next frame
+        self.layout_w = 0.0;
     }
 
     fn find(&mut self, forward: bool, wrap: bool) {
@@ -226,7 +239,7 @@ impl App {
     fn visit(&mut self, v: Option<Visit>) {
         if let Some(v) = v {
             self.select(v.row, false);
-            self.scroll_diff(v.line * ROW_H);
+            self.diff_goto = Some(v.line as usize);
         }
     }
 
@@ -340,13 +353,14 @@ impl App {
 
     /// Starts (or extends) an eased scroll of the diff by `dy`, stopping at either end.
     fn animate_diff(&mut self, ctx: &egui::Context, dy: f32) {
-        let max = (self.details.lines.len() as f32 * ROW_H - self.diff_h).max(0.0);
+        let max = (self.ys.last().copied().unwrap_or(0.0) - self.diff_h).max(0.0);
         let to = self.diff_anim.map_or(self.diff_off.y, |a| a.1) + dy;
         self.diff_anim = Some((self.diff_off.y, to.clamp(0.0, max), ctx.input(|i| i.time)));
     }
 
+    /// The diff line at the top of the view.
     fn top_line(&self) -> usize {
-        (self.diff_off.y / ROW_H).floor() as usize
+        self.ys.partition_point(|&y| y <= self.diff_off.y).saturating_sub(1)
     }
 
     fn update_query(&mut self) {
@@ -460,12 +474,12 @@ impl App {
         } else if pressed(Key::F) {
             let next = self.details.file_at(self.top_line()) + 1;
             if let Some(&(_, line)) = self.details.files.get(next) {
-                self.scroll_diff(line as f32 * ROW_H);
+                self.diff_goto = Some(line);
             }
         } else if pressed(Key::B) {
             let top = self.top_line();
             let prev = self.details.files.iter().rev().map(|f| f.1).find(|&l| l < top);
-            self.scroll_diff(prev.unwrap_or(0) as f32 * ROW_H);
+            self.diff_goto = Some(prev.unwrap_or(0));
         }
     }
 
@@ -645,14 +659,44 @@ impl App {
 
     fn diff_view(&mut self, ui: &mut egui::Ui) {
         let char_w = ui.fonts_mut(|f| f.glyph_width(&font(12.0, false), 'x'));
-        let mut sa = egui::ScrollArea::both().id_salt("diff").auto_shrink(false);
+        // the width lines wrap at, clear of the scroll bar
+        let w = (ui.available_width() - ui.spacing().scroll.bar_width - 4.0).max(100.0);
+        let split = self.settings.split.on(w / char_w);
+        if split != self.split {
+            // keep the file at the top in view
+            let file = self.details.file_at(self.top_line());
+            self.split = split;
+            self.show_details();
+            self.diff_goto = self.details.files.get(file).map(|f| f.1).or(self.diff_goto);
+        }
+        let (full, half) = (wrap_cols(w, char_w), wrap_cols(w / 2.0, char_w));
+        if self.layout_w != w {
+            self.layout_w = w;
+            let rows = |l: &gr::Line, cols: usize| l.text.chars().count().div_ceil(cols).max(1);
+            let mut y = 0.0;
+            self.ys = Vec::with_capacity(self.details.lines.len() + 1);
+            for l in &self.details.lines {
+                self.ys.push(y);
+                let n = match &l.right {
+                    None => rows(l, full),
+                    Some(r) => rows(l, half).max(rows(r, half)),
+                };
+                y += n as f32 * ROW_H;
+            }
+            self.ys.push(y);
+        }
+        if let Some(line) = self.diff_goto.take() {
+            self.diff_scroll = Some(Vec2::new(0.0, self.ys[line.min(self.ys.len() - 1)]));
+        }
+
+        let mut sa = egui::ScrollArea::vertical().id_salt("diff").auto_shrink(false);
         if ui.input(|i| i.smooth_scroll_delta.y != 0.0) || self.diff_scroll.is_some() {
             self.diff_anim = None;
         }
         if let Some((from, to, start)) = self.diff_anim {
             let t = ((ui.input(|i| i.time) - start) / 0.2).min(1.0) as f32;
             // ease-out cubic
-            self.diff_scroll = Some(Vec2::new(self.diff_off.x, from + (to - from) * (1.0 - (1.0 - t).powi(3))));
+            self.diff_scroll = Some(Vec2::new(0.0, from + (to - from) * (1.0 - (1.0 - t).powi(3))));
             if t < 1.0 {
                 ui.ctx().request_repaint();
             } else {
@@ -662,27 +706,33 @@ impl App {
         if let Some(off) = self.diff_scroll.take() {
             sa = sa.scroll_offset(off);
         }
-        ui.spacing_mut().item_spacing.y = 0.0;
         let mut link = None;
         let mut origin = None;
-        let lines = &self.details.lines;
-        let content_w = (self.max_cols as f32 * char_w).max(2.0 * self.half_cols as f32 * char_w + 8.0) + 8.0;
-        let out = sa.show_rows(ui, ROW_H, lines.len(), |ui, range| {
-            let w = content_w.max(ui.available_width());
-            for (i, line) in lines.iter().enumerate().take(range.end).skip(range.start) {
-                let (rect, _) = ui.allocate_exact_size(Vec2::new(w, ROW_H), Sense::hover());
-                // a column per side: its rect and line
-                let cols: Vec<(Rect, &gr::Line)> = match &line.right {
-                    None => vec![(rect, line)],
+        let (lines, ys) = (&self.details.lines, &self.ys);
+        let out = sa.show_viewport(ui, |ui, view| {
+            ui.set_height(*ys.last().unwrap());
+            let top = ui.max_rect().min;
+            let first = ys.partition_point(|&y| y <= view.min.y).saturating_sub(1);
+            for (i, line) in lines.iter().enumerate().skip(first) {
+                if ys[i] >= view.max.y {
+                    break;
+                }
+                let rect = Rect::from_min_size(top + Vec2::new(0.0, ys[i]), Vec2::new(w, ys[i + 1] - ys[i]));
+                // a column per side: its rect, line and wrap width in chars
+                let cols: Vec<(Rect, &gr::Line, usize)> = match &line.right {
+                    None => vec![(rect, line, full)],
                     Some(right) => {
                         let mid = rect.left() + w / 2.0;
-                        vec![(Rect::from_x_y_ranges(rect.left()..=mid, rect.y_range()), line), (Rect::from_x_y_ranges(mid..=rect.right(), rect.y_range()), &**right)]
+                        vec![
+                            (Rect::from_x_y_ranges(rect.left()..=mid, rect.y_range()), line, half),
+                            (Rect::from_x_y_ranges(mid..=rect.right(), rect.y_range()), &**right, half),
+                        ]
                     }
                 };
-                for (side, (r, l)) in cols.into_iter().enumerate() {
+                for (side, (r, l, n)) in cols.into_iter().enumerate() {
                     // under the label, so text selection still works on the text
                     let under = ui.interact(r, ui.scope_id().with(("diff line", i, side)), Sense::click());
-                    let resp = draw_line(&mut ui.new_child(egui::UiBuilder::new().max_rect(r)), r, l, char_w);
+                    let resp = draw_line(&mut ui.new_child(egui::UiBuilder::new().max_rect(r)), r, l, char_w, n);
                     if origin_menu(&under, l) || origin_menu(&resp, l) {
                         origin = Some((i, l.clone()));
                     }
@@ -698,7 +748,7 @@ impl App {
             }
         });
         self.diff_off = out.state.clamped_offset();
-        self.history.set_line(self.diff_off.y / ROW_H);
+        self.history.set_line(self.top_line() as f32);
         self.diff_h = out.inner_rect.height();
         if let Some(row) = link {
             self.select(row, true);
@@ -763,7 +813,7 @@ impl App {
             });
         });
         if let Some(line) = jump {
-            self.scroll_diff(line as f32 * ROW_H);
+            self.diff_goto = Some(line);
         }
         if hist.is_some() {
             self.file_history(hist);
@@ -814,7 +864,10 @@ impl App {
             let label = ui.label("Lines of context:");
             ui.add(egui::DragValue::new(&mut self.settings.diff.context).range(0..=1000)).labelled_by(label.id);
             ui.checkbox(&mut self.settings.diff.ignore_space, "Ignore space change");
-            ui.checkbox(&mut self.settings.diff.split, "Side by side");
+            ui.label("Side by side:");
+            for m in settings::Split::ALL {
+                ui.selectable_value(&mut self.settings.split, m, m.name());
+            }
             if opts != self.settings.diff {
                 self.select(self.sel, false);
             }
@@ -860,49 +913,59 @@ fn origin_menu(resp: &egui::Response, line: &gr::Line) -> bool {
     picked
 }
 
-/// Paints `line` into `rect`: background, changed words, then its text as
-/// a selectable label, so text can be selected across lines and copied.
-fn draw_line(ui: &mut egui::Ui, rect: Rect, line: &gr::Line, char_w: f32) -> egui::Response {
+/// Characters that fit across `w`, after the text's left margin.
+fn wrap_cols(w: f32, char_w: f32) -> usize {
+    (((w - 8.0) / char_w).floor() as usize).max(8)
+}
+
+/// Paints `line` into `rect`, wrapped at `cols` chars: background, changed
+/// words, then its text as a selectable label, so text can be selected
+/// across lines and copied.
+fn draw_line(ui: &mut egui::Ui, rect: Rect, line: &gr::Line, char_w: f32, cols: usize) -> egui::Response {
     let fg = fg(ui, line.style.fg);
     let p = ui.painter().with_clip_rect(rect);
+    let left = rect.left() + 4.0;
     if let Some(bg_c) = line.style.bg {
         let bg = bg(ui, bg_c);
         p.rect_filled(rect, 0.0, bg);
-        // the changed words in a deeper shade of the line's colour
+        // the changed words in a deeper shade of the line's colour, a
+        // rect per wrapped row they cover
         for &(s, e) in &line.changed {
-            let x = |c: usize| rect.left() + 4.0 + c as f32 * char_w;
-            p.rect_filled(Rect::from_x_y_ranges(x(s)..=x(e), rect.y_range()), 2.0, bg.lerp_to_gamma(fg, 0.25));
+            for row in s / cols..=(e.max(s + 1) - 1) / cols {
+                let (a, b) = (s.max(row * cols) - row * cols, e.min((row + 1) * cols) - row * cols);
+                let y = rect.top() + row as f32 * ROW_H;
+                let r = Rect::from_x_y_ranges(left + a as f32 * char_w..=left + b as f32 * char_w, y..=y + ROW_H);
+                p.rect_filled(r, 2.0, bg.lerp_to_gamma(fg, 0.25));
+            }
         }
     }
-    let g = line_galley(ui, line, fg);
-    let tw = g.size().x;
+    let g = line_galley(ui, line, fg, cols as f32 * char_w + 0.5);
+    let size = g.size();
     if line.link.is_some() {
-        p.hline(rect.left() + 4.0..=rect.left() + 4.0 + tw, rect.center().y + 7.0, Stroke::new(1.0, fg));
+        let w = size.x.min(rect.width() - 8.0);
+        p.hline(left..=left + w, rect.top() + ROW_H / 2.0 + 7.0, Stroke::new(1.0, fg));
     }
-    let text_rect = Rect::from_center_size(Pos2::new(rect.left() + 4.0 + tw / 2.0, rect.center().y), g.size());
-    // a child ui, unlike ui.put, leaves the row cursor alone; put
-    // moved it up to the label's bottom and the rows overlapped
-    let mut text = ui.new_child(egui::UiBuilder::new().max_rect(text_rect));
+    let mut text = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_size(Pos2::new(left, rect.top()), size)));
     text.set_clip_rect(rect.intersect(ui.clip_rect()));
     text.add(egui::Label::new(g).selectable(true))
 }
 
-/// A diff line's text in `fg`, with its syntax colours.
-fn line_galley(ui: &egui::Ui, line: &gr::Line, fg: Color32) -> Arc<Galley> {
+/// A diff line's text in `fg` with its syntax colours, wrapped anywhere at
+/// `wrap` so each row holds the same number of chars, each row `ROW_H` high.
+fn line_galley(ui: &egui::Ui, line: &gr::Line, fg: Color32, wrap: f32) -> Arc<Galley> {
     let f = font(12.0, line.style.bold);
-    if line.syntax.is_empty() {
-        return galley(ui.painter(), &line.text, f, fg);
-    }
+    let format = |color| egui::TextFormat { font_id: f.clone(), color, line_height: Some(ROW_H), valign: Align::Center, ..Default::default() };
     let byte = |c: usize| line.text.char_indices().nth(c).map_or(line.text.len(), |(b, _)| b);
     let mut job = egui::text::LayoutJob::default();
     let mut at = 0;
     for &(s, e, color) in &line.syntax {
         let (s, e) = (byte(s), byte(e));
-        job.append(&line.text[at..s], 0.0, egui::TextFormat::simple(f.clone(), fg));
-        job.append(&line.text[s..e], 0.0, egui::TextFormat::simple(f.clone(), self::fg(ui, color)));
+        job.append(&line.text[at..s], 0.0, format(fg));
+        job.append(&line.text[s..e], 0.0, format(self::fg(ui, color)));
         at = e;
     }
-    job.append(&line.text[at..], 0.0, egui::TextFormat::simple(f, fg));
+    job.append(&line.text[at..], 0.0, format(fg));
+    job.wrap = egui::text::TextWrapping { max_width: wrap, break_anywhere: true, ..Default::default() };
     ui.painter().layout_job(job)
 }
 
@@ -1203,7 +1266,7 @@ mod tests {
         sh(&["commit", "-q", "-m", "lib: greet by name"]);
         sh(&["tag", "v1.0"]);
         sh(&["checkout", "-q", "-b", "topic"]);
-        write("lib.rs", "/// Says hello.\nfn greet(name: &str, times: u32) -> String {\n    format!(\"hello {}\", name).repeat(times as usize)\n}\n");
+        write("lib.rs", "/// Says hello.\nfn greet(name: &str, times: u32) -> String {\n    format!(\"hello {}, it is good to see you again after all this time away from here\", name).repeat(times as usize)\n}\n");
         sh(&["commit", "-q", "-am", "lib: greet more than once"]);
         sh(&["checkout", "-q", "main"]);
         write("readme.txt", "hello\n");
@@ -1222,7 +1285,7 @@ mod tests {
         let topic_id = repo.commits[topic].id().to_string();
         notes.toggle(&topic_id, "ok").unwrap();
         let mut harness = Harness::builder()
-            .with_size([1600.0, 420.0])
+            .with_size([1600.0, 470.0])
             .build_eframe(|cc| App::new(repo, None, init(cc, false), &cc.egui_ctx));
         for (pref, name) in [(egui::ThemePreference::Light, "light"), (egui::ThemePreference::Dark, "dark")] {
             harness.ctx.set_theme(pref);
@@ -1236,11 +1299,11 @@ mod tests {
             harness.run();
             harness.snapshot(name);
         }
-        harness.state_mut().settings.diff.split = true;
+        harness.state_mut().settings.split = settings::Split::On;
         harness.state_mut().select(topic, true);
         harness.run();
         harness.snapshot("diff_split");
-        harness.state_mut().settings.diff.split = false;
+        harness.state_mut().settings.split = settings::Split::Off;
         harness.state_mut().select(0, true);
         harness.state_mut().settings.open = true;
         harness.ctx.set_theme(egui::ThemePreference::Dark);

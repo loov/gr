@@ -8,13 +8,11 @@ pub struct DiffOpts {
     pub words: bool,
     /// Colour keywords, strings, comments and numbers.
     pub syntax: bool,
-    /// Removed lines on the left, added ones on the right.
-    pub split: bool,
 }
 
 impl Default for DiffOpts {
     fn default() -> Self {
-        DiffOpts { context: 3, ignore_space: false, words: true, syntax: true, split: false }
+        DiffOpts { context: 3, ignore_space: false, words: true, syntax: true }
     }
 }
 
@@ -64,7 +62,7 @@ pub struct Line {
     pub new: u32,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Details {
     pub lines: Vec<Line>,
     /// ("Comments", 0) followed by each changed file and the line where its diff starts.
@@ -421,8 +419,7 @@ impl Repo {
         if opts.syntax {
             decorate::syntax(&mut b.lines, &b.files);
         }
-        let d = Details { lines: b.lines, files: b.files };
-        if opts.split { d.split() } else { d }
+        Details { lines: b.lines, files: b.files }
     }
 
     /// Author, parents, children, branches, tags and the message.
