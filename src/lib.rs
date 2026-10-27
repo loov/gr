@@ -7,6 +7,7 @@ mod find;
 mod graph;
 mod locations;
 mod reach;
+mod watch;
 
 use std::cell::{OnceCell, RefCell};
 use std::collections::HashMap;
@@ -19,6 +20,7 @@ pub use details::{DiffOpts, Details, Kind, Line, Style};
 pub use find::{Field, Hit, Mode, Query};
 pub use graph::Seg;
 pub use locations::{Location, Locations};
+pub use watch::Watch;
 
 pub type Rgb = [u8; 3];
 
@@ -490,6 +492,11 @@ impl Repo {
     pub fn annotations(&self) -> io::Result<Annotations> {
         let dir = git(&self.cwd, &["rev-parse", "--git-common-dir"])?;
         Annotations::load(self.cwd.join(dir.trim()).join("gr.info"))
+    }
+
+    /// Watches this repository for changes made by other programs.
+    pub fn watch(&self, wake: impl Fn() + Send + 'static) -> Watch {
+        Watch::new(&self.cwd, wake)
     }
 
     /// Branches, tags and the like, for the sidebar.

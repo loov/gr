@@ -94,11 +94,16 @@ struct App {
     /// The OS menu bar; None where the menu is drawn with egui.
     native: Option<menu::Native>,
     settings: settings::Settings,
+    watch: gr::Watch,
 }
 
 impl App {
-    fn new(repo: Repo, native: Option<menu::Native>, settings: settings::Settings) -> App {
+    fn new(repo: Repo, native: Option<menu::Native>, settings: settings::Settings, ctx: &egui::Context) -> App {
         let sel = repo.head_row.unwrap_or(0);
+        let watch = {
+            let ctx = ctx.clone();
+            repo.watch(move || ctx.request_repaint())
+        };
         let (notes, status) = match repo.annotations() {
             Ok(n) => (n, String::new()),
             Err(e) => (Annotations::default(), format!("gr.info: {e}")),
@@ -131,6 +136,7 @@ impl App {
             job: None,
             native,
             settings,
+            watch,
         };
         app.select(sel, true);
         // select clears the status, so report a bad gr.info after it
@@ -820,6 +826,9 @@ impl eframe::App for App {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll_job();
+        if self.watch.changed() && self.job.is_none() {
+            self.reload();
+        }
         self.keys(ui.ctx());
         let w = ui.available_width();
         let mut clicked = self.native.as_ref().and_then(|n| n.clicked());
@@ -897,7 +906,7 @@ fn main() {
             // egui follows the system light/dark setting until the toolbar overrides it
             let saved = |k| cc.storage.and_then(|s| s.get_string(k));
             let settings = settings::Settings::new(&cc.egui_ctx, saved("light_theme"), saved("dark_theme"));
-            Ok(Box::new(App::new(repo, menu::Native::new(cc), settings)))
+            Ok(Box::new(App::new(repo, menu::Native::new(cc), settings, &cc.egui_ctx)))
         }),
     );
     if let Err(e) = res {
