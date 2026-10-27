@@ -68,7 +68,7 @@ impl Settings {
             }
             Panel::left("settings-nav").resizable(false).exact_size(220.0).show(ui, |ui| {
                 ui.add_space(8.0);
-                ui.add(TextEdit::singleline(&mut self.query).hint_text("🔍 Search").desired_width(f32::INFINITY));
+                ui.add(TextEdit::singleline(&mut self.query).hint_text("Search").desired_width(f32::INFINITY));
                 ui.add_space(8.0);
                 for s in SECTIONS {
                     if ui.selectable_label(self.jump == Some(s), s).clicked() {

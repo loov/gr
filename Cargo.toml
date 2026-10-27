@@ -19,3 +19,6 @@ raw-window-handle = "0.6"
 
 [patch.crates-io]
 winit = { path = "vendor/winit" }
+
+[dev-dependencies]
+egui_kittest = { version = "0.37", features = ["wgpu", "snapshot", "eframe"] }

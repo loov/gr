@@ -484,8 +484,8 @@ impl App {
 
     fn id_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.label("Commit ID:");
-            let r = ui.add(TextEdit::singleline(&mut self.id_text).id(Id::unique(ID_EDIT)).font(egui::TextStyle::Monospace).desired_width(330.0));
+            let label = ui.label("Commit ID:");
+            let r = ui.add(TextEdit::singleline(&mut self.id_text).id(Id::unique(ID_EDIT)).font(egui::TextStyle::Monospace).desired_width(330.0)).labelled_by(label.id);
             if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
                 match self.repo.resolve(&self.id_text) {
                     Ok(row) => self.select(row, true),
@@ -514,7 +514,6 @@ impl App {
                 if ui.button("⚙").on_hover_text("Settings").clicked() {
                     self.settings.open = true;
                 }
-                egui::widgets::global_theme_preference_buttons(ui);
                 ui.separator();
                 let err = ui.visuals().error_fg_color;
                 ui.add(egui::Label::new(RichText::new(&self.status).color(err)).truncate());
@@ -531,8 +530,8 @@ impl App {
             if ui.button("↑").clicked() {
                 self.find(false, true);
             }
-            ui.label("commit containing:");
-            let r = ui.add(TextEdit::singleline(&mut self.find_text).id(Id::unique(FIND_EDIT)).desired_width(300.0));
+            let label = ui.label("commit containing:");
+            let r = ui.add(TextEdit::singleline(&mut self.find_text).id(Id::unique(FIND_EDIT)).desired_width(300.0)).labelled_by(label.id);
             if r.changed() {
                 self.update_query();
             }
@@ -541,16 +540,20 @@ impl App {
                 r.request_focus();
             }
             let (mode, field) = (self.mode, self.field);
-            ComboBox::from_id_salt("mode").selected_text(self.mode.label()).show_ui(ui, |ui| {
+            // named for screen readers, which have no label to go by
+            let named = |r: egui::Response, name: &'static str| r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, name));
+            let r = ComboBox::from_id_salt("mode").selected_text(self.mode.label()).show_ui(ui, |ui| {
                 for m in Mode::ALL {
                     ui.selectable_value(&mut self.mode, m, m.label());
                 }
             });
-            ComboBox::from_id_salt("field").selected_text(self.field.label()).width(110.0).show_ui(ui, |ui| {
+            named(r.response, "Match");
+            let r = ComboBox::from_id_salt("field").selected_text(self.field.label()).width(110.0).show_ui(ui, |ui| {
                 for f in Field::ALL {
                     ui.selectable_value(&mut self.field, f, f.label());
                 }
             });
+            named(r.response, "Search in");
             if (mode, field) != (self.mode, self.field) {
                 self.update_query();
             }
@@ -746,8 +749,8 @@ impl App {
     fn diff_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             let opts = self.settings.diff.clone();
-            ui.label("Lines of context:");
-            ui.add(egui::DragValue::new(&mut self.settings.diff.context).range(0..=1000));
+            let label = ui.label("Lines of context:");
+            ui.add(egui::DragValue::new(&mut self.settings.diff.context).range(0..=1000)).labelled_by(label.id);
             ui.checkbox(&mut self.settings.diff.ignore_space, "Ignore space change");
             if opts.context != self.settings.diff.context || opts.ignore_space != self.settings.diff.ignore_space {
                 self.select(self.sel, false);
@@ -992,6 +995,31 @@ impl eframe::App for Gr {
     }
 }
 
+/// Fonts and saved settings, before the first frame. Without
+/// `system_fonts` only the bundled fonts are used, as the tests do.
+fn init(cc: &eframe::CreationContext, system_fonts: bool) -> settings::Settings {
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert("regular".into(), Arc::new(egui::FontData::from_static(include_bytes!("../fonts/LythMono-Regular.ttf"))));
+    fonts.font_data.insert("bold".into(), Arc::new(egui::FontData::from_static(include_bytes!("../fonts/LythMono-Bold.ttf"))));
+    // Menlo ships with macOS but may not be redistributed, so load it
+    // from the system and keep Lyth Mono for other platforms.
+    if let Some(menlo) = system_fonts.then(|| std::fs::read("/System/Library/Fonts/Menlo.ttc").ok()).flatten() {
+        for (name, index) in [("regular", 0), ("bold", 1)] {
+            let mut f = egui::FontData::from_owned(menlo.clone());
+            f.index = index;
+            fonts.font_data.insert(name.into(), Arc::new(f));
+        }
+    }
+    for fam in [FontFamily::Proportional, FontFamily::Monospace] {
+        fonts.families.entry(fam).or_default().insert(0, "regular".into());
+    }
+    let bold = std::iter::once("bold".into()).chain(fonts.families[&FontFamily::Proportional].clone()).collect();
+    fonts.families.insert(FontFamily::Name("bold".into()), bold);
+    cc.egui_ctx.set_fonts(fonts);
+    // egui follows the system light/dark setting until the toolbar overrides it
+    settings::Settings::new(&cc.egui_ctx, |k| cc.storage.and_then(|s| s.get_string(k)))
+}
+
 fn main() {
     let mut args = std::env::args().skip(1);
     let dir = args.next().unwrap_or_else(|| ".".into());
@@ -1005,26 +1033,7 @@ fn main() {
         "gr",
         options,
         Box::new(|cc| {
-            let mut fonts = egui::FontDefinitions::default();
-            fonts.font_data.insert("regular".into(), Arc::new(egui::FontData::from_static(include_bytes!("../fonts/LythMono-Regular.ttf"))));
-            fonts.font_data.insert("bold".into(), Arc::new(egui::FontData::from_static(include_bytes!("../fonts/LythMono-Bold.ttf"))));
-            // Menlo ships with macOS but may not be redistributed, so load it
-            // from the system and keep Lyth Mono for other platforms.
-            if let Ok(menlo) = std::fs::read("/System/Library/Fonts/Menlo.ttc") {
-                for (name, index) in [("regular", 0), ("bold", 1)] {
-                    let mut f = egui::FontData::from_owned(menlo.clone());
-                    f.index = index;
-                    fonts.font_data.insert(name.into(), Arc::new(f));
-                }
-            }
-            for fam in [FontFamily::Proportional, FontFamily::Monospace] {
-                fonts.families.entry(fam).or_default().insert(0, "regular".into());
-            }
-            let bold = std::iter::once("bold".into()).chain(fonts.families[&FontFamily::Proportional].clone()).collect();
-            fonts.families.insert(FontFamily::Name("bold".into()), bold);
-            cc.egui_ctx.set_fonts(fonts);
-            // egui follows the system light/dark setting until the toolbar overrides it
-            let settings = settings::Settings::new(&cc.egui_ctx, |k| cc.storage.and_then(|s| s.get_string(k)));
+            let settings = init(cc, true);
             let native = menu::Native::new(cc);
             Ok(Box::new(Gr::Loading(Some((loading, native, settings)))))
         }),
@@ -1032,5 +1041,68 @@ fn main() {
     if let Err(e) = res {
         eprintln!("gr: {e}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui_kittest::Harness;
+
+    /// A small repository with fixed names and dates, so renders repeat.
+    fn sample_repo() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("gr-snapshot-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut n = 0;
+        let mut sh = |args: &[&str]| {
+            n += 1;
+            let date = format!("2001-02-03T04:{n:02}:00Z");
+            let ok = std::process::Command::new("git")
+                .current_dir(&dir)
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_AUTHOR_DATE", &date)
+                .env("GIT_COMMITTER_DATE", &date)
+                .args(["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.com", "-c", "commit.gpgSign=false", "-c", "tag.gpgSign=false"])
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "{args:?}");
+        };
+        let write = |name: &str, text: &str| std::fs::write(dir.join(name), text).unwrap();
+        sh(&["init", "-q", "-b", "main"]);
+        write("notes.txt", "first line\nsecond line\n");
+        sh(&["add", "notes.txt"]);
+        sh(&["commit", "-q", "-m", "notes: start the notes"]);
+        sh(&["tag", "v1.0"]);
+        sh(&["checkout", "-q", "-b", "topic"]);
+        write("notes.txt", "first line\nsecond line, longer\nthird line\n");
+        sh(&["commit", "-q", "-am", "notes: add a third line"]);
+        sh(&["checkout", "-q", "main"]);
+        write("readme.txt", "hello\n");
+        sh(&["add", "readme.txt"]);
+        sh(&["commit", "-q", "-m", "readme: say hello"]);
+        dir
+    }
+
+    #[test]
+    fn snapshots() {
+        let dir = sample_repo();
+        let repo = Repo::open(&dir, &[]).unwrap();
+        // topic's only commit reviewed: its node, the ok label and the branch check
+        let mut notes = repo.annotations().unwrap();
+        let topic = repo.commits.iter().find(|c| c.subject() == "notes: add a third line").unwrap().id().to_string();
+        notes.toggle(&topic, "ok").unwrap();
+        let mut harness = Harness::builder()
+            .with_size([1600.0, 420.0])
+            .build_eframe(|cc| App::new(repo, None, init(cc, false), &cc.egui_ctx));
+        for (pref, name) in [(egui::ThemePreference::Light, "light"), (egui::ThemePreference::Dark, "dark")] {
+            harness.ctx.set_theme(pref);
+            harness.run();
+            harness.snapshot(name);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }
