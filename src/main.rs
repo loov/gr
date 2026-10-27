@@ -634,11 +634,17 @@ impl App {
             let w = content_w.max(ui.available_width());
             for line in &lines[range] {
                 let (rect, _) = ui.allocate_exact_size(Vec2::new(w, ROW_H), Sense::hover());
-                if let Some(bg_c) = line.style.bg {
-                    ui.painter().rect_filled(rect, 0.0, bg(ui, bg_c));
-                }
                 let fg = fg(ui, line.style.fg);
-                let g = galley(ui.painter(), &line.text, font(12.0, line.style.bold), fg);
+                if let Some(bg_c) = line.style.bg {
+                    let bg = bg(ui, bg_c);
+                    ui.painter().rect_filled(rect, 0.0, bg);
+                    // the changed words in a deeper shade of the line's colour
+                    for &(s, e) in &line.changed {
+                        let x = |c: usize| rect.left() + 4.0 + c as f32 * char_w;
+                        ui.painter().rect_filled(Rect::from_x_y_ranges(x(s)..=x(e), rect.y_range()), 2.0, bg.lerp_to_gamma(fg, 0.25));
+                    }
+                }
+                let g = line_galley(ui, line, fg);
                 let tw = g.size().x;
                 // a selectable label, so text can be selected across lines and copied
                 let text_rect = Rect::from_center_size(Pos2::new(rect.left() + 4.0 + tw / 2.0, rect.center().y), g.size());
@@ -752,7 +758,7 @@ impl App {
             let label = ui.label("Lines of context:");
             ui.add(egui::DragValue::new(&mut self.settings.diff.context).range(0..=1000)).labelled_by(label.id);
             ui.checkbox(&mut self.settings.diff.ignore_space, "Ignore space change");
-            if opts.context != self.settings.diff.context || opts.ignore_space != self.settings.diff.ignore_space {
+            if opts != self.settings.diff {
                 self.select(self.sel, false);
             }
         });
@@ -779,6 +785,25 @@ fn location_tree(ui: &mut egui::Ui, salt: &str, list: &[Location], depth: usize,
         });
         i += n;
     }
+}
+
+/// A diff line's text in `fg`, with its syntax colours.
+fn line_galley(ui: &egui::Ui, line: &gr::Line, fg: Color32) -> Arc<Galley> {
+    let f = font(12.0, line.style.bold);
+    if line.syntax.is_empty() {
+        return galley(ui.painter(), &line.text, f, fg);
+    }
+    let byte = |c: usize| line.text.char_indices().nth(c).map_or(line.text.len(), |(b, _)| b);
+    let mut job = egui::text::LayoutJob::default();
+    let mut at = 0;
+    for &(s, e, color) in &line.syntax {
+        let (s, e) = (byte(s), byte(e));
+        job.append(&line.text[at..s], 0.0, egui::TextFormat::simple(f.clone(), fg));
+        job.append(&line.text[s..e], 0.0, egui::TextFormat::simple(f.clone(), self::fg(ui, color)));
+        at = e;
+    }
+    job.append(&line.text[at..], 0.0, egui::TextFormat::simple(f, fg));
+    ui.painter().layout_job(job)
 }
 
 /// (ok, all) of a branch's own commits.
@@ -1073,13 +1098,13 @@ mod tests {
         };
         let write = |name: &str, text: &str| std::fs::write(dir.join(name), text).unwrap();
         sh(&["init", "-q", "-b", "main"]);
-        write("notes.txt", "first line\nsecond line\n");
-        sh(&["add", "notes.txt"]);
-        sh(&["commit", "-q", "-m", "notes: start the notes"]);
+        write("lib.rs", "/// Says hello.\nfn greet(name: &str) -> String {\n    format!(\"hello {}\", name)\n}\n");
+        sh(&["add", "lib.rs"]);
+        sh(&["commit", "-q", "-m", "lib: greet by name"]);
         sh(&["tag", "v1.0"]);
         sh(&["checkout", "-q", "-b", "topic"]);
-        write("notes.txt", "first line\nsecond line, longer\nthird line\n");
-        sh(&["commit", "-q", "-am", "notes: add a third line"]);
+        write("lib.rs", "/// Says hello.\nfn greet(name: &str, times: u32) -> String {\n    format!(\"hello {}\", name).repeat(times as usize)\n}\n");
+        sh(&["commit", "-q", "-am", "lib: greet more than once"]);
         sh(&["checkout", "-q", "main"]);
         write("readme.txt", "hello\n");
         sh(&["add", "readme.txt"]);
@@ -1093,8 +1118,9 @@ mod tests {
         let repo = Repo::open(&dir, &[]).unwrap();
         // topic's only commit reviewed: its node, the ok label and the branch check
         let mut notes = repo.annotations().unwrap();
-        let topic = repo.commits.iter().find(|c| c.subject() == "notes: add a third line").unwrap().id().to_string();
-        notes.toggle(&topic, "ok").unwrap();
+        let topic = repo.commits.iter().position(|c| c.subject() == "lib: greet more than once").unwrap();
+        let topic_id = repo.commits[topic].id().to_string();
+        notes.toggle(&topic_id, "ok").unwrap();
         let mut harness = Harness::builder()
             .with_size([1600.0, 420.0])
             .build_eframe(|cc| App::new(repo, None, init(cc, false), &cc.egui_ctx));
@@ -1103,6 +1129,14 @@ mod tests {
             harness.run();
             harness.snapshot(name);
         }
+        // word diff and syntax colours
+        harness.state_mut().select(topic, true);
+        for (pref, name) in [(egui::ThemePreference::Light, "diff_light"), (egui::ThemePreference::Dark, "diff_dark")] {
+            harness.ctx.set_theme(pref);
+            harness.run();
+            harness.snapshot(name);
+        }
+        harness.state_mut().select(0, true);
         harness.state_mut().settings.open = true;
         harness.ctx.set_theme(egui::ThemePreference::Dark);
         harness.set_size(egui::Vec2::new(1100.0, 760.0));

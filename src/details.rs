@@ -1,14 +1,18 @@
-use crate::{git, Commit, Repo, Rgb, INDEX_ID, UNCOMMITTED_ID};
+use crate::{decorate, git, Commit, Repo, Rgb, INDEX_ID, UNCOMMITTED_ID};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DiffOpts {
     pub context: u32,
     pub ignore_space: bool,
+    /// Mark the words that changed in pairs of removed and added lines.
+    pub words: bool,
+    /// Colour keywords, strings, comments and numbers.
+    pub syntax: bool,
 }
 
 impl Default for DiffOpts {
     fn default() -> Self {
-        DiffOpts { context: 3, ignore_space: false }
+        DiffOpts { context: 3, ignore_space: false, words: true, syntax: true }
     }
 }
 
@@ -44,6 +48,12 @@ pub struct Line {
     pub kind: Kind,
     pub style: Style,
     pub link: Option<usize>,
+    /// A line of a merge diff, with a prefix column per parent.
+    pub merge: bool,
+    /// Char ranges of the words that changed, for word diff.
+    pub changed: Vec<(usize, usize)>,
+    /// Char ranges coloured by syntax.
+    pub syntax: Vec<(usize, usize, Rgb)>,
 }
 
 #[derive(Default)]
@@ -121,7 +131,7 @@ impl Builder {
         self.push_styled(text.into(), kind, style_for(kind, false, None), None);
     }
     fn push_styled(&mut self, text: String, kind: Kind, style: Style, link: Option<usize>) {
-        self.lines.push(Line { text, kind, style, link });
+        self.lines.push(Line { text, kind, style, link, merge: false, changed: vec![], syntax: vec![] });
     }
     fn link(&mut self, text: String, row: Option<usize>) {
         let kind = if row.is_some() { Kind::Link } else { Kind::Plain };
@@ -274,6 +284,7 @@ fn parse_diff(b: &mut Builder, diff: &str) {
                     (Kind::Context, None)
                 };
                 b.push_styled(text, kind, style_for(kind, merge, parent), None);
+                b.lines.last_mut().unwrap().merge = merge;
             } else {
                 // "\ No newline at end of file", submodule summaries, ...
                 b.push(text, Kind::Hunk);
@@ -323,6 +334,12 @@ impl Repo {
         match diff {
             Ok(d) => parse_diff(&mut b, &d),
             Err(e) => b.push(format!("Error getting diffs: {e}"), Kind::Hunk),
+        }
+        if opts.words {
+            decorate::word_diff(&mut b.lines);
+        }
+        if opts.syntax {
+            decorate::syntax(&mut b.lines, &b.files);
         }
         Details { lines: b.lines, files: b.files }
     }

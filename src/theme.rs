@@ -89,6 +89,8 @@ impl Theme {
             [255, 255, 0] => p[3],
             [0xa9, 0xa9, 0xa9] => p[8],
             [0xa5, 0x2a, 0x2a] => p[1].lerp_to_gamma(p[8], 0.4),
+            // dark cyan: syntax colour of strings
+            [0, 0x90, 0x90] => p[6],
             [0, 0, 0] => self.fg,
             // diff backgrounds: deleted, added, file header
             [0xff, 0xf3, 0xf3] => self.bg.lerp_to_gamma(p[1], 0.15),

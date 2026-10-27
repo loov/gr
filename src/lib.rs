@@ -2,6 +2,7 @@
 //! commit details/diffs, find, goto and navigation history.
 
 mod annotations;
+mod decorate;
 mod details;
 mod find;
 mod graph;

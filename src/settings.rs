@@ -35,7 +35,10 @@ impl Settings {
         if let Some(n) = saved("diff_context").and_then(|v| v.parse().ok()) {
             diff.context = n;
         }
-        diff.ignore_space = saved("ignore_space").is_some_and(|v| v == "true");
+        let flag = |k: &str, default: bool| saved(k).map_or(default, |v| v == "true");
+        diff.ignore_space = flag("ignore_space", diff.ignore_space);
+        diff.words = flag("word_diff", diff.words);
+        diff.syntax = flag("syntax", diff.syntax);
         Settings {
             open: false,
             query: String::new(),
@@ -52,6 +55,8 @@ impl Settings {
         storage.set_string("dark_theme", self.dark.clone());
         storage.set_string("diff_context", self.diff.context.to_string());
         storage.set_string("ignore_space", self.diff.ignore_space.to_string());
+        storage.set_string("word_diff", self.diff.words.to_string());
+        storage.set_string("syntax", self.diff.syntax.to_string());
     }
 
     /// Draws the window while open; returns whether the diff options changed.
@@ -59,7 +64,7 @@ impl Settings {
         if !self.open {
             return false;
         }
-        let before = (self.diff.context, self.diff.ignore_space);
+        let before = self.diff.clone();
         let builder = egui::ViewportBuilder::default().with_title("Settings").with_inner_size([960.0, 720.0]);
         ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("settings"), builder, |ui, _| {
             let cmd_w = ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::W));
@@ -80,7 +85,7 @@ impl Settings {
                 egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.page(ui));
             });
         });
-        before != (self.diff.context, self.diff.ignore_space)
+        before != self.diff
     }
 
     /// Every section, with only the rows matching the search.
@@ -174,8 +179,10 @@ impl Settings {
         // Diff
         const CONTEXT: (&str, &str) = ("Lines of Context", "Unchanged lines shown around each change. Also in the bar under the diff.");
         const SPACE: (&str, &str) = ("Ignore Space Change", "Hide changes that only add or remove whitespace.");
+        const WORDS: (&str, &str) = ("Word Diff", "Mark the words that changed between a removed line and the added line after it.");
+        const SYNTAX: (&str, &str) = ("Syntax Highlighting", "Colour keywords, strings, comments and numbers, by the file's extension.");
         let section = hit("Diff");
-        let rows = [CONTEXT, SPACE].map(|r| section || hit(r.0) || hit(r.1));
+        let rows = [CONTEXT, SPACE, WORDS, SYNTAX].map(|r| section || hit(r.0) || hit(r.1));
         if rows.contains(&true) {
             heading(ui, "Diff", &mut self.jump);
             ui.add_space(8.0);
@@ -184,6 +191,12 @@ impl Settings {
             }
             if rows[1] {
                 row(ui, SPACE, |ui| Some(ui.checkbox(&mut self.diff.ignore_space, "")));
+            }
+            if rows[2] {
+                row(ui, WORDS, |ui| Some(ui.checkbox(&mut self.diff.words, "")));
+            }
+            if rows[3] {
+                row(ui, SYNTAX, |ui| Some(ui.checkbox(&mut self.diff.syntax, "")));
             }
         }
 
