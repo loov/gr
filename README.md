@@ -9,7 +9,8 @@ A git history viewer in Rust and egui, based on gitk.
   from macOS, is missing.
 - `themes/` – colour themes from iTerm2-Color-Schemes (MIT), in Ghostty's
   format; only those whose own licence is known and fits GPL-3.0-or-later,
-  listed with licence and source in `themes/licenses.yml`.
+  listed with licence and source in `themes/licenses.yml` and with each
+  author's licence text in `themes/NOTICES.md`.
 - `vendor/winit/` – winit 0.30.13 (Apache-2.0), patched so the macOS
   press-and-hold accent menu works in text fields.
 

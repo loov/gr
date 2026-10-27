@@ -1,6 +1,8 @@
 # Licence and source of each theme in themes.txt, taken from
 # https://github.com/mbadolato/iTerm2-Color-Schemes/blob/27cbbb5ee7e98ff15484e7342b07a20606260176/licenses.yml
-# Only themes whose licence is known and compatible with GPL-3.0-or-later are included.
+# Only themes whose licence is known and compatible with GPL-3.0-or-later are
+# included. Molokai is left out: its licence covers only its Vim code and
+# names Monokai's colours as Wimer Hazenberg's.
 
 '0x96f':
   license: MIT
@@ -495,9 +497,6 @@ Mellow:
 Miasma:
   license: CC0-1.0
   source: https://github.com/xero/miasma.nvim
-Molokai:
-  license: MIT
-  source: https://github.com/tomasr/molokai
 Moonfly:
   license: MIT
   source: https://github.com/bluz71/vim-moonfly-colors
