@@ -95,6 +95,9 @@ struct App {
     native: Option<menu::Native>,
     settings: settings::Settings,
     watch: gr::Watch,
+    /// A reload running in the background.
+    loading: Option<std::thread::JoinHandle<std::io::Result<Repo>>>,
+    ctx: egui::Context,
 }
 
 impl App {
@@ -137,6 +140,8 @@ impl App {
             native,
             settings,
             watch,
+            loading: None,
+            ctx: ctx.clone(),
         };
         app.select(sel, true);
         // select clears the status, so report a bad gr.info after it
@@ -187,8 +192,26 @@ impl App {
         self.visit(v);
     }
 
+    /// Starts reopening the repository; `poll_reload` takes the result.
     fn reload(&mut self) {
-        match self.repo.reload(self.sel) {
+        if self.loading.is_some() {
+            return;
+        }
+        let job = self.repo.reopen();
+        let ctx = self.ctx.clone();
+        self.loading = Some(std::thread::spawn(move || {
+            let r = job();
+            ctx.request_repaint();
+            r
+        }));
+    }
+
+    fn poll_reload(&mut self) {
+        if !self.loading.as_ref().is_some_and(|j| j.is_finished()) {
+            return;
+        }
+        let res = self.loading.take().unwrap().join().unwrap_or_else(|_| Err(std::io::Error::other("load thread panicked")));
+        match res.map(|repo| { let row = self.repo.place(&repo, self.sel); (repo, row) }) {
             Ok((repo, row)) => {
                 self.repo = repo;
                 self.locs = self.repo.locations();
@@ -442,7 +465,7 @@ impl App {
 
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            if self.job.is_some() {
+            if self.job.is_some() || self.loading.is_some() {
                 ui.spinner();
             }
             self.id_bar(ui);
@@ -826,6 +849,7 @@ impl eframe::App for App {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll_job();
+        self.poll_reload();
         if self.watch.changed() && self.job.is_none() {
             self.reload();
         }
@@ -866,19 +890,58 @@ impl eframe::App for App {
     }
 }
 
+/// The app, or the history still loading at startup.
+enum Gr {
+    Loading(Option<(std::thread::JoinHandle<std::io::Result<Repo>>, Option<menu::Native>, settings::Settings)>),
+    Ready(Box<App>),
+}
+
+impl eframe::App for Gr {
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        if let Gr::Ready(app) = self {
+            app.save(storage);
+        }
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        if let Gr::Loading(slot) = self {
+            if !slot.as_ref().is_some_and(|(job, _, _)| job.is_finished()) {
+                egui::CentralPanel::default_margins().show(ui, |ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(ui.available_height() / 2.0 - 30.0);
+                        ui.spinner();
+                        ui.label("Loading history…");
+                    });
+                });
+                // the loader thread cannot wake egui
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+                return;
+            }
+            let (job, native, settings) = slot.take().unwrap();
+            match job.join().unwrap_or_else(|_| Err(std::io::Error::other("load thread panicked"))) {
+                Ok(repo) => {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Title(repo.title()));
+                    *self = Gr::Ready(Box::new(App::new(repo, native, settings, ui.ctx())));
+                }
+                Err(e) => {
+                    eprintln!("gr: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        if let Gr::Ready(app) = self {
+            app.ui(ui, frame);
+        }
+    }
+}
+
 fn main() {
     let mut args = std::env::args().skip(1);
     let dir = args.next().unwrap_or_else(|| ".".into());
     let log_args: Vec<String> = args.collect();
-    let repo = match Repo::open(&dir, &log_args) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("gr: {e}");
-            std::process::exit(1);
-        }
-    };
+    let loading = std::thread::spawn(move || Repo::open(&dir, &log_args));
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_title(repo.title()).with_inner_size([1600.0, 900.0]),
+        viewport: egui::ViewportBuilder::default().with_title("gr").with_inner_size([1600.0, 900.0]),
         ..Default::default()
     };
     let res = eframe::run_native(
@@ -906,7 +969,8 @@ fn main() {
             // egui follows the system light/dark setting until the toolbar overrides it
             let saved = |k| cc.storage.and_then(|s| s.get_string(k));
             let settings = settings::Settings::new(&cc.egui_ctx, saved("light_theme"), saved("dark_theme"));
-            Ok(Box::new(App::new(repo, menu::Native::new(cc), settings, &cc.egui_ctx)))
+            let native = menu::Native::new(cc);
+            Ok(Box::new(Gr::Loading(Some((loading, native, settings)))))
         }),
     );
     if let Err(e) = res {

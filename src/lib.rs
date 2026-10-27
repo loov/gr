@@ -289,7 +289,6 @@ fn git_differs(dir: &PathBuf, args: &[&str]) -> bool {
 impl Repo {
     /// Loads the whole history synchronously; `log_args` are passed to
     /// `git log` (default `--all`, so every branch in the sidebar is listed).
-    // Synchronous load; stream in the background if huge repos (>100k commits) matter.
     pub fn open(dir: impl Into<PathBuf>, log_args: &[String]) -> io::Result<Repo> {
         let cwd: PathBuf = dir.into();
         let cwd = cwd.canonicalize().unwrap_or(cwd);
@@ -400,11 +399,24 @@ impl Repo {
     }
 
     /// Reopens with the same directory and log arguments. Returns the new
-    /// repo and the row to select: `sel`'s commit if still listed, else the
-    /// first commit with its subject (it was amended or rebased), else the
-    /// commit as far down the same branch, else HEAD's row or 0.
+    /// repo and the row to select, as `place` picks it.
     pub fn reload(&self, sel: usize) -> io::Result<(Repo, usize)> {
-        let repo = Repo::open(&self.cwd, &self.log_args)?;
+        let repo = self.reopen()()?;
+        let row = self.place(&repo, sel);
+        Ok((repo, row))
+    }
+
+    /// A job that opens this repository again, to run on another thread.
+    pub fn reopen(&self) -> impl FnOnce() -> io::Result<Repo> + Send + 'static {
+        let (cwd, args) = (self.cwd.clone(), self.log_args.clone());
+        move || Repo::open(&cwd, &args)
+    }
+
+    /// The row in `repo`, a reloaded copy of this one, to select in place of
+    /// `sel`: its commit if still listed, else the first commit with its
+    /// subject (it was amended or rebased), else the commit as far down the
+    /// same branch, else HEAD's row or 0.
+    pub fn place(&self, repo: &Repo, sel: usize) -> usize {
         let old = self.commits.get(sel);
         let row = old
             .and_then(|c| repo.index_of(c.id()))
@@ -420,8 +432,7 @@ impl Repo {
                 }
                 Some(row)
             });
-        let row = row.or(repo.head_row).unwrap_or(0);
-        Ok((repo, row))
+        row.or(repo.head_row).unwrap_or(0)
     }
 
     fn first_parent(&self, row: usize) -> Option<usize> {
