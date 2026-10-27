@@ -329,6 +329,8 @@ impl App {
             self.select((self.sel + 1).min(last), true);
         } else if pressed(Key::K) {
             self.toggle_note("ok");
+        } else if pressed(Key::J) {
+            self.next_unreviewed();
         } else if pressed(Key::R) {
             self.reload();
         } else if pressed(Key::Home) {
@@ -367,6 +369,22 @@ impl App {
             let top = self.top_line();
             let prev = self.details.files.iter().rev().map(|f| f.1).find(|&l| l < top);
             self.scroll_diff(prev.unwrap_or(0) as f32 * ROW_H);
+        }
+    }
+
+    /// Selects the oldest commit not yet ok on the selected commit's branch,
+    /// or on the checked out branch when the selection is on none.
+    fn next_unreviewed(&mut self) {
+        let id = self.repo.commits[self.sel].id();
+        let mut branches: Vec<&Location> = self.locs.branches.iter().collect();
+        branches.sort_by_key(|b| !b.current);
+        let Some(b) = branches.iter().find(|b| b.own.iter().any(|o| o == id)).or_else(|| branches.iter().find(|b| b.current)) else {
+            return;
+        };
+        let next = b.own.iter().filter(|o| !self.notes.has(o, "ok")).filter_map(|o| self.repo.index_of(o)).max();
+        match next {
+            Some(row) => self.select(row, true),
+            None => self.status = format!("{} has no commits left to review", b.name),
         }
     }
 
