@@ -829,18 +829,8 @@ fn breaks_parsing(arg: &str) -> bool {
         "--relative-date",
     ];
     const PREFIX: &[&str] = &[
-        "--pretty",
-        "--format",
-        "--date=",
-        "--color",
-        "--stat",
-        "--decorate=",
-        "-U",
-        "--unified",
-        "--dirstat",
-        "--word-diff",
-        "--diff-merges",
-        "--encoding",
+        "--pretty", "--format", "--date=", "--color", "--stat", "--decorate=", "-U", "--unified",
+        "--dirstat", "--word-diff", "--diff-merges", "--encoding",
     ];
     EXACT.contains(&arg) || PREFIX.iter().any(|p| arg.starts_with(p))
 }
@@ -1016,15 +1006,8 @@ mod tests {
     #[test]
     fn diff_args_dropped() {
         for a in [
-            "-U1",
-            "--unified=5",
-            "-p",
-            "--stat=80",
-            "--name-only",
-            "--cc",
-            "-m",
-            "--word-diff=color",
-            "--raw",
+            "-U1", "--unified=5", "-p", "--stat=80", "--name-only", "--cc", "-m",
+            "--word-diff=color", "--raw",
         ] {
             assert!(breaks_parsing(a), "{a}");
         }
