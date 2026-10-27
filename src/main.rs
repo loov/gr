@@ -325,6 +325,8 @@ impl App {
             self.select((self.sel + 1).min(last), true);
         } else if pressed(Key::K) {
             self.toggle_note("ok");
+        } else if pressed(Key::R) {
+            self.reload();
         } else if pressed(Key::Home) {
             self.select(0, true);
         } else if pressed(Key::End) {

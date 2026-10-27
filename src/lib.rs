@@ -398,12 +398,50 @@ impl Repo {
     }
 
     /// Reopens with the same directory and log arguments. Returns the new
-    /// repo and the row to select: `sel`'s commit if still listed, else HEAD's row or 0.
+    /// repo and the row to select: `sel`'s commit if still listed, else the
+    /// first commit with its subject (it was amended or rebased), else the
+    /// commit as far down the same branch, else HEAD's row or 0.
     pub fn reload(&self, sel: usize) -> io::Result<(Repo, usize)> {
         let repo = Repo::open(&self.cwd, &self.log_args)?;
-        let row = self.commits.get(sel).and_then(|c| repo.index_of(c.id()));
+        let old = self.commits.get(sel);
+        let row = old
+            .and_then(|c| repo.index_of(c.id()))
+            .or_else(|| old.and_then(|c| repo.commits.iter().position(|n| !n.is_fake() && n.subject() == c.subject())))
+            .or_else(|| {
+                let (branch, depth) = self.branch_pos(sel)?;
+                let mut row = repo.index_of(repo.heads.get(&branch)?)?;
+                for _ in 0..depth {
+                    match repo.first_parent(row) {
+                        Some(p) => row = p,
+                        None => break,
+                    }
+                }
+                Some(row)
+            });
         let row = row.or(repo.head_row).unwrap_or(0);
         Ok((repo, row))
+    }
+
+    fn first_parent(&self, row: usize) -> Option<usize> {
+        self.index_of(self.commits[row].parents().next()?)
+    }
+
+    /// A branch with `row` on its first-parent chain and how many commits
+    /// below the tip it is. The checked out branch goes first, then local
+    /// ones, so the answer names the branch being worked on.
+    fn branch_pos(&self, row: usize) -> Option<(String, usize)> {
+        let cur = self.commits.iter().flat_map(|c| &c.refs).find(|r| r.current).map(|r| r.name.as_str());
+        let mut names: Vec<&String> = self.heads.keys().collect();
+        names.sort_by_key(|n| (Some(n.as_str()) != cur, n.starts_with("remotes/"), n.as_str()));
+        names.into_iter().find_map(|n| {
+            let mut i = self.index_of(&self.heads[n])?;
+            let mut depth = 0;
+            while i != row {
+                i = self.first_parent(i)?;
+                depth += 1;
+            }
+            Some((n.clone(), depth))
+        })
     }
 
     fn read_refs(&mut self, out: &str, head_branch: Option<&str>) {
@@ -740,6 +778,47 @@ mod tests {
             (want.sort(), got.sort());
             assert_eq!(got, want, "{}", b.name);
         }
+    }
+
+    #[test]
+    fn reload_keeps_place() {
+        let dir = std::env::temp_dir().join(format!("gr-reload-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let sh = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .current_dir(&dir)
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgSign=false"])
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "{args:?}");
+        };
+        let subject = |r: &Repo, row: usize| r.commits[row].subject().to_string();
+        sh(&["init", "-q", "-b", "main"]);
+        for m in ["a", "b", "c"] {
+            sh(&["commit", "-q", "--allow-empty", "-m", m]);
+        }
+        let r = Repo::open(&dir, &[]).unwrap();
+        let row = |r: &Repo, s: &str| r.commits.iter().position(|c| c.subject() == s).unwrap();
+
+        // same id
+        let (r, sel) = r.reload(row(&r, "b")).unwrap();
+        assert_eq!(subject(&r, sel), "b");
+        // amended: new id, same subject
+        sh(&["commit", "-q", "--amend", "--allow-empty", "--no-edit", "--date=2001-01-01"]);
+        let (r, sel) = r.reload(row(&r, "c")).unwrap();
+        assert_eq!(subject(&r, sel), "c");
+        // rewritten: neither id nor subject, so one below main's tip again
+        sh(&["reset", "-q", "--hard", "HEAD~2"]);
+        sh(&["commit", "-q", "--allow-empty", "-m", "b2"]);
+        sh(&["commit", "-q", "--allow-empty", "-m", "c2"]);
+        let (r, sel) = r.reload(row(&r, "b")).unwrap();
+        assert_eq!(subject(&r, sel), "b2");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
