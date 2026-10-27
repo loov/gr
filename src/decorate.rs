@@ -1,6 +1,10 @@
 //! Colouring inside diff lines: the words a change touched, and a light
 //! syntax highlight of the code.
 
+use std::sync::LazyLock;
+
+use syntect::parsing::{ParseState, Scope, ScopeStack, SyntaxReference, SyntaxSet};
+
 use crate::details::{Kind, Line};
 use crate::Rgb;
 
@@ -118,172 +122,127 @@ fn tokens(s: &str, from: usize) -> Vec<(usize, usize)> {
     out
 }
 
-struct Lang {
-    comment: &'static [&'static str],
-    keywords: &'static [&'static str],
-    /// Single quotes delimit strings, not Rust lifetimes or chars.
-    single_quotes: bool,
+/// Code lines coloured per diff. Highlighting runs on the UI thread at
+/// about 20µs a line, so past this a huge diff stays plain instead of
+/// stalling each selection; move it off the thread if that matters.
+const SYNTAX_LINES: usize = 20_000;
+
+/// bat's grammars; syntect's own set lacks TOML, TypeScript and Kotlin.
+static SYNTAXES: LazyLock<SyntaxSet> = LazyLock::new(two_face::syntax::extra_newlines);
+
+/// Token colour by scope prefix.
+static COLOURS: LazyLock<Vec<(Scope, Rgb)>> = LazyLock::new(|| {
+    [
+        ("comment", COMMENT),
+        ("string", STRING),
+        ("constant.numeric", NUMBER),
+        ("constant.language", KEYWORD),
+        ("keyword", KEYWORD),
+        ("storage", KEYWORD),
+    ]
+    .into_iter()
+    .map(|(s, c)| (Scope::new(s).expect("valid scope"), c))
+    .collect()
+});
+
+static OPERATOR: LazyLock<Scope> =
+    LazyLock::new(|| Scope::new("keyword.operator").expect("valid scope"));
+
+fn find(path: &str) -> Option<&'static SyntaxReference> {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    let ext = name.rsplit_once('.').map_or(name, |(_, e)| e);
+    // whole names like Makefile are listed as extensions too
+    SYNTAXES.find_syntax_by_extension(ext).or_else(|| SYNTAXES.find_syntax_by_extension(name))
 }
 
-const C_LIKE: &[&str] = &[
-    "break", "case", "char", "const", "continue", "default", "do", "double", "else", "enum",
-    "extern", "float", "for", "goto", "if", "inline", "int", "long", "return", "short", "signed",
-    "sizeof", "static", "struct", "switch", "typedef", "union", "unsigned", "void", "volatile",
-    "while", "class", "namespace", "public", "private", "protected", "template", "typename",
-    "virtual", "new", "delete", "this", "true", "false", "nullptr", "auto", "bool",
-];
-
-fn lang(path: &str) -> Option<Lang> {
-    let ext = path.rsplit_once('.').map_or("", |(_, e)| e);
-    Some(match ext {
-        "rs" => Lang {
-            comment: &["//"],
-            keywords: &[
-                "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else",
-                "enum", "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match",
-                "mod", "move", "mut", "pub", "ref", "return", "self", "Self", "static", "struct",
-                "super", "trait", "true", "type", "unsafe", "use", "where", "while",
-            ],
-            single_quotes: false,
-        },
-        "go" => Lang {
-            comment: &["//"],
-            keywords: &[
-                "break", "case", "chan", "const", "continue", "default", "defer", "else",
-                "fallthrough", "for", "func", "go", "goto", "if", "import", "interface", "map",
-                "package", "range", "return", "select", "struct", "switch", "type", "var", "nil",
-                "true", "false",
-            ],
-            single_quotes: true,
-        },
-        "c" | "h" | "cc" | "cpp" | "cxx" | "hpp" | "hh" | "m" | "mm" => {
-            Lang { comment: &["//"], keywords: C_LIKE, single_quotes: true }
-        }
-        "java" | "kt" | "kts" | "scala" | "cs" | "swift" | "dart" => Lang {
-            comment: &["//"],
-            keywords: &[
-                "abstract", "break", "case", "catch", "class", "const", "continue", "default",
-                "do", "else", "enum", "extends", "final", "finally", "for", "fun", "func", "if",
-                "implements", "import", "interface", "let", "new", "null", "nil", "override",
-                "package", "private", "protected", "public", "return", "static", "struct", "super",
-                "switch", "this", "throw", "try", "val", "var", "void", "when", "while", "true",
-                "false",
-            ],
-            single_quotes: true,
-        },
-        "js" | "mjs" | "cjs" | "jsx" | "ts" | "tsx" => Lang {
-            comment: &["//"],
-            keywords: &[
-                "async", "await", "break", "case", "catch", "class", "const", "continue",
-                "default", "delete", "do", "else", "export", "extends", "finally", "for", "from",
-                "function", "if", "import", "in", "instanceof", "interface", "let", "new", "null",
-                "of", "return", "super", "switch", "this", "throw", "try", "type", "typeof",
-                "undefined", "var", "void", "while", "yield", "true", "false",
-            ],
-            single_quotes: true,
-        },
-        "py" | "pyi" => Lang {
-            comment: &["#"],
-            keywords: &[
-                "and", "as", "assert", "async", "await", "break", "class", "continue", "def",
-                "del", "elif", "else", "except", "finally", "for", "from", "global", "if",
-                "import", "in", "is", "lambda", "None", "nonlocal", "not", "or", "pass", "raise",
-                "return", "True", "False", "try", "while", "with", "yield",
-            ],
-            single_quotes: true,
-        },
-        "rb" => Lang {
-            comment: &["#"],
-            keywords: &[
-                "begin", "class", "def", "do", "else", "elsif", "end", "ensure", "false", "for",
-                "if", "module", "nil", "require", "rescue", "return", "self", "then", "true",
-                "unless", "until", "when", "while", "yield",
-            ],
-            single_quotes: true,
-        },
-        "sh" | "bash" | "zsh" => Lang {
-            comment: &["#"],
-            keywords: &[
-                "case", "do", "done", "elif", "else", "esac", "export", "fi", "for", "function",
-                "if", "in", "local", "return", "then", "while",
-            ],
-            single_quotes: true,
-        },
-        "toml" | "yaml" | "yml" | "conf" | "ini" => {
-            Lang { comment: &["#", ";"], keywords: &["true", "false"], single_quotes: true }
-        }
-        "sql" => Lang {
-            comment: &["--"],
-            keywords: &[
-                "select", "from", "where", "insert", "into", "values", "update", "set", "delete",
-                "create", "table", "index", "join", "left", "right", "inner", "outer", "on", "and",
-                "or", "not", "null", "group", "by", "order", "limit", "as", "SELECT", "FROM",
-                "WHERE", "INSERT", "INTO", "VALUES", "UPDATE", "SET", "DELETE", "CREATE", "TABLE",
-                "INDEX", "JOIN", "ON", "AND", "OR", "NOT", "NULL", "GROUP", "BY", "ORDER", "LIMIT",
-                "AS",
-            ],
-            single_quotes: true,
-        },
-        _ => return None,
-    })
-}
-
-/// Colours keywords, strings, comments and numbers in the code lines of
-/// each file, taking the language from its name. One line at a time, so a
-/// comment or string spanning lines is only coloured on its first.
-// ponytail: a per-line tokenizer; a real grammar (tree-sitter, syntect) if multi-line constructs matter
+/// Colours the code lines of each file. The old and new file are parsed
+/// as separate streams, so a removed "/*" doesn't comment out added lines.
+/// Each hunk starts both afresh, which is wrong inside a long comment or
+/// string but right everywhere else.
 pub fn syntax(lines: &mut [Line], files: &[(String, usize)]) {
+    let mut budget = SYNTAX_LINES;
     for (f, (name, start)) in files.iter().enumerate().skip(1) {
-        let Some(lang) = lang(name) else { continue };
+        let Some(syntax) = find(name) else { continue };
         let end = files.get(f + 1).map_or(lines.len(), |n| n.1);
+        let (mut old, mut new) = (Stream::new(syntax), Stream::new(syntax));
         for line in &mut lines[*start..end] {
-            if matches!(line.kind, Kind::Context | Kind::Add | Kind::Del) && !line.merge {
-                line.syntax = highlight(&line.text, 1, &lang);
+            if line.merge {
+                continue;
+            }
+            if budget == 0 {
+                return;
+            }
+            budget -= 1;
+            match line.kind {
+                Kind::Context => {
+                    old.highlight(&line.text);
+                    line.syntax = new.highlight(&line.text);
+                }
+                Kind::Del => line.syntax = old.highlight(&line.text),
+                Kind::Add => line.syntax = new.highlight(&line.text),
+                _ => {
+                    old = Stream::new(syntax);
+                    new = Stream::new(syntax);
+                }
             }
         }
     }
 }
 
-fn highlight(s: &str, from: usize, lang: &Lang) -> Vec<(usize, usize, Rgb)> {
-    let c: Vec<char> = s.chars().collect();
-    let mut out = vec![];
-    let mut i = from;
-    let starts = |i: usize, p: &str| p.chars().enumerate().all(|(k, pc)| c.get(i + k) == Some(&pc));
-    while i < c.len() {
-        if lang.comment.iter().any(|p| starts(i, p)) {
-            out.push((i, c.len(), COMMENT));
-            break;
-        }
-        let ch = c[i];
-        if ch == '"' || ch == '`' || (ch == '\'' && lang.single_quotes) {
-            let mut j = i + 1;
-            while j < c.len() && c[j] != ch {
-                j += if c[j] == '\\' { 2 } else { 1 };
-            }
-            let end = (j + 1).min(c.len());
-            out.push((i, end, STRING));
-            i = end;
-        } else if ch.is_ascii_digit()
-            && (i == 0 || !(c[i - 1].is_alphanumeric() || c[i - 1] == '_'))
-        {
-            let j = i + c[i..]
-                .iter()
-                .take_while(|c| c.is_ascii_alphanumeric() || **c == '.' || **c == '_')
-                .count();
-            out.push((i, j, NUMBER));
-            i = j;
-        } else if ch.is_alphabetic() || ch == '_' {
-            let j = i + c[i..].iter().take_while(|c| c.is_alphanumeric() || **c == '_').count();
-            let word: String = c[i..j].iter().collect();
-            if lang.keywords.contains(&word.as_str()) {
-                out.push((i, j, KEYWORD));
-            }
-            i = j;
-        } else {
-            i += 1;
-        }
+/// One side of a file's diff, parsed line after line.
+struct Stream {
+    syntax: &'static SyntaxReference,
+    parse: ParseState,
+    scopes: ScopeStack,
+}
+
+impl Stream {
+    fn new(syntax: &'static SyntaxReference) -> Stream {
+        Stream { syntax, parse: ParseState::new(syntax), scopes: ScopeStack::new() }
     }
-    out
+
+    /// Char ranges of `text` to colour, past its one-char diff prefix.
+    fn highlight(&mut self, text: &str) -> Vec<(usize, usize, Rgb)> {
+        let code = text.get(1..).unwrap_or("");
+        let Ok(ops) = self.parse.parse_line(&format!("{code}\n"), &SYNTAXES) else {
+            *self = Stream::new(self.syntax);
+            return vec![];
+        };
+        let mut out: Vec<(usize, usize, Rgb)> = vec![];
+        let (mut at, mut ch) = (0, 1);
+        let ends = ops.iter().map(|(pos, _)| (*pos).min(code.len())).chain([code.len()]);
+        let mut ops = ops.iter();
+        for pos in ends {
+            if pos > at {
+                let n = code[at..pos].chars().count();
+                if let Some(c) = self.colour(&code[at..pos]) {
+                    match out.last_mut() {
+                        Some(last) if last.1 == ch && last.2 == c => last.1 += n,
+                        _ => out.push((ch, ch + n, c)),
+                    }
+                }
+                (at, ch) = (pos, ch + n);
+            }
+            if let Some((_, op)) = ops.next() {
+                // a broken grammar leaves the stack as it was
+                let _ = self.scopes.apply(op);
+            }
+        }
+        out
+    }
+
+    fn colour(&self, piece: &str) -> Option<Rgb> {
+        let mut scopes = self.scopes.as_slice().iter().rev();
+        // the innermost scope with a known prefix decides
+        let (scope, c) = scopes.find_map(|s| {
+            COLOURS.iter().find(|(p, _)| p.is_prefix_of(*s)).map(|(_, c)| (*s, *c))
+        })?;
+        // `+` and `->` stay plain, but word operators like `as` and `in` don't
+        if OPERATOR.is_prefix_of(scope) && !piece.starts_with(char::is_alphabetic) {
+            return None;
+        }
+        Some(c)
+    }
 }
 
 #[cfg(test)]
@@ -303,18 +262,26 @@ mod tests {
         assert!(changed_words("-completely different", "+nothing alike here at all").is_none());
     }
 
+    /// The coloured pieces of each line, highlighted in order.
+    fn colours(path: &str, lines: &[&str]) -> Vec<Vec<(String, Rgb)>> {
+        let mut st = Stream::new(find(path).unwrap());
+        let piece =
+            |s: &str, (a, b, c): (usize, usize, Rgb)| (s.chars().skip(a).take(b - a).collect(), c);
+        lines.iter().map(|s| st.highlight(s).into_iter().map(|r| piece(s, r)).collect()).collect()
+    }
+
     #[test]
     fn rust_tokens() {
-        let rs = lang("a.rs").unwrap();
-        let s = " let n = 42; // \"x\"";
-        let got: Vec<(String, Rgb)> = highlight(s, 1, &rs)
-            .into_iter()
-            .map(|(a, b, c)| (s.chars().skip(a).take(b - a).collect(), c))
-            .collect();
+        let got = colours("a.rs", &[" let n = 42; // \"x\"", " f(\"a\\\"b\", 'x')"]);
         assert_eq!(
-            got,
+            got[0],
             [("let".into(), KEYWORD), ("42".into(), NUMBER), ("// \"x\"".into(), COMMENT)]
         );
-        assert_eq!(highlight(" f(\"a\\\"b\", 'x')", 1, &rs), [(3, 9, STRING)]);
+        assert_eq!(got[1], [("\"a\\\"b\"".into(), STRING), ("'x'".into(), STRING)]);
+        // a block comment carries over to the next line
+        let got = colours("a.rs", &[" x as u8 + 1"]);
+        assert_eq!(got[0], [("as".into(), KEYWORD), ("u8".into(), KEYWORD), ("1".into(), NUMBER)]);
+        let got = colours("a.rs", &["+/* a", "+ b */ fn"]);
+        assert_eq!(got[1], [(" b */".into(), COMMENT), ("fn".into(), KEYWORD)]);
     }
 }

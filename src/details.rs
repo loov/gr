@@ -623,6 +623,23 @@ fn list(names: &[&str]) -> (String, usize) {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn syntax_keeps_sides_apart() {
+        let mut b = Builder { lines: vec![], files: vec![("Comments".into(), 0)] };
+        b.start_file("a.rs");
+        for (t, k) in
+            [("@@", Kind::Hunk), ("-/*", Kind::Del), ("+fn", Kind::Add), (" fn", Kind::Context)]
+        {
+            b.push(t, k);
+        }
+        decorate::syntax(&mut b.lines, &b.files);
+        let colour = |i: usize| b.lines[i].syntax.iter().map(|r| r.2).collect::<Vec<_>>();
+        // the removed "/*" comments out the old side only
+        assert_eq!(colour(3), [[169, 169, 169]]);
+        assert_eq!(colour(4), [[160, 32, 240]]);
+        assert_eq!(colour(5), [[160, 32, 240]]);
+    }
+
+    #[test]
     fn split_pairs_lines() {
         let mut b = Builder { lines: vec![], files: vec![("Comments".into(), 0)] };
         b.start_file("f");
