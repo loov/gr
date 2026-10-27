@@ -9,7 +9,7 @@ mod settings;
 mod theme;
 
 use egui_extras::{Column, TableBuilder};
-use gr::{Annotations, Details, Location, Locations, DiffOpts, Field, Hit, History, Mode, Query, RefKind, Repo, Rgb, Seg, Visit, REMOTE_PREFIX};
+use gr::{Annotations, Details, Location, Locations, Field, Hit, History, Mode, Query, RefKind, Repo, Rgb, Seg, Visit, REMOTE_PREFIX};
 
 const ROW_H: f32 = 18.0;
 /// Commit list rows hold two lines: subject, then committer and date.
@@ -69,7 +69,6 @@ struct App {
     notes: Annotations,
     sel: usize,
     details: Details,
-    opts: DiffOpts,
     history: History,
     id_text: String,
     status: String,
@@ -118,7 +117,6 @@ impl App {
             sel,
             // filled by select below
             details: Default::default(),
-            opts: DiffOpts::default(),
             history: History::default(),
             id_text: String::new(),
             status: String::new(),
@@ -156,7 +154,7 @@ impl App {
         }
         let row = row.min(self.repo.commits.len() - 1);
         self.sel = row;
-        self.details = self.repo.details(row, &self.opts);
+        self.details = self.repo.details(row, &self.settings.diff);
         self.max_cols = self.details.lines.iter().map(|l| l.text.chars().count()).max().unwrap_or(0);
         self.id_text = self.repo.commits[row].id().to_string();
         self.status.clear();
@@ -706,11 +704,11 @@ impl App {
 
     fn diff_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            let opts = self.opts.clone();
+            let opts = self.settings.diff.clone();
             ui.label("Lines of context:");
-            ui.add(egui::DragValue::new(&mut self.opts.context).range(0..=1000));
-            ui.checkbox(&mut self.opts.ignore_space, "Ignore space change");
-            if opts.context != self.opts.context || opts.ignore_space != self.opts.ignore_space {
+            ui.add(egui::DragValue::new(&mut self.settings.diff.context).range(0..=1000));
+            ui.checkbox(&mut self.settings.diff.ignore_space, "Ignore space change");
+            if opts.context != self.settings.diff.context || opts.ignore_space != self.settings.diff.ignore_space {
                 self.select(self.sel, false);
             }
         });
@@ -846,8 +844,7 @@ fn draw_commit_cell(ui: &mut egui::Ui, c: &gr::Commit, segs: &[Seg], bold: bool,
 
 impl eframe::App for App {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        storage.set_string("light_theme", self.settings.light.clone());
-        storage.set_string("dark_theme", self.settings.dark.clone());
+        self.settings.save(storage);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -867,7 +864,9 @@ impl eframe::App for App {
             Some(menu::Action::Settings) => self.settings.open = true,
             _ => {}
         }
-        self.settings.show(ui.ctx());
+        if self.settings.show(ui.ctx()) {
+            self.select(self.sel, false);
+        }
         let frame = egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(12, 8));
         Panel::top("toolbar").frame(frame).show(ui, |ui| self.toolbar(ui));
         Panel::bottom("statusbar").frame(frame).show(ui, |ui| {
@@ -970,8 +969,7 @@ fn main() {
             fonts.families.insert(FontFamily::Name("bold".into()), bold);
             cc.egui_ctx.set_fonts(fonts);
             // egui follows the system light/dark setting until the toolbar overrides it
-            let saved = |k| cc.storage.and_then(|s| s.get_string(k));
-            let settings = settings::Settings::new(&cc.egui_ctx, saved("light_theme"), saved("dark_theme"));
+            let settings = settings::Settings::new(&cc.egui_ctx, |k| cc.storage.and_then(|s| s.get_string(k)));
             let native = menu::Native::new(cc);
             Ok(Box::new(Gr::Loading(Some((loading, native, settings)))))
         }),
