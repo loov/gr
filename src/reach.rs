@@ -230,7 +230,7 @@ impl Reach {
             let mut stack = vec![tip];
             let mut queue = vec![];
             while let Some(c) = stack.pop() {
-                let name = names[c].unwrap();
+                let name = names[c].expect("named before it is stacked");
                 queue.clear();
                 for (k, &p) in self.parents[self.pstart[c] as usize..self.pstart[c + 1] as usize].iter().enumerate() {
                     let p = p as usize;
@@ -304,7 +304,7 @@ impl Reach {
                 }
             }
             if annotated > 0 && queue.is_empty() {
-                let best = found.iter().map(|t| t.depth).min().unwrap();
+                let best = found.iter().map(|t| t.depth).min().expect("annotated tags are in found");
                 let within = found.iter().filter(|t| t.depth == best).fold(0, |w, t| w | t.flag);
                 if flags[c] & within == within {
                     break;

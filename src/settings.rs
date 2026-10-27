@@ -60,7 +60,7 @@ impl Settings {
     pub fn new(ctx: &egui::Context, saved: impl Fn(&str) -> Option<String>) -> Settings {
         let pick = |name: Option<String>, default: &str, dark: bool| {
             let t = name.and_then(|n| theme::find(&n)).filter(|t| t.is_dark() == dark);
-            let t = t.or_else(|| theme::find(default)).unwrap();
+            let t = t.or_else(|| theme::find(default)).expect("default theme is built in");
             t.apply(ctx);
             t.name
         };

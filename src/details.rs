@@ -101,7 +101,7 @@ impl Details {
                 Some(Kind::Add) => (0, run(i, Kind::Add)),
                 _ => {
                     row_of[i] = out.len();
-                    let mut l = lines[i].take().unwrap();
+                    let mut l = lines[i].take().expect("each line is taken once");
                     if code[i] == Some(Kind::Context) {
                         l.right = Some(Box::new(l.clone()));
                     }
@@ -111,8 +111,8 @@ impl Details {
                 }
             };
             for k in 0..dels.max(adds) {
-                let mut left = if k < dels { row_of[i + k] = out.len(); lines[i + k].take().unwrap() } else { blank() };
-                let right = if k < adds { row_of[i + dels + k] = out.len(); lines[i + dels + k].take().unwrap() } else { blank() };
+                let mut left = if k < dels { row_of[i + k] = out.len(); lines[i + k].take().expect("each line is taken once") } else { blank() };
+                let right = if k < adds { row_of[i + dels + k] = out.len(); lines[i + dels + k].take().expect("each line is taken once") } else { blank() };
                 left.right = Some(Box::new(right));
                 out.push(left);
             }
@@ -351,7 +351,7 @@ fn parse_diff(b: &mut Builder, diff: &str) {
                     (Kind::Context, None)
                 };
                 b.push_styled(text, kind, style_for(kind, merge, parent), None);
-                let l = b.lines.last_mut().unwrap();
+                let l = b.lines.last_mut().expect("push_styled added a line");
                 l.merge = merge;
                 if !merge {
                     if kind != Kind::Add {
@@ -407,7 +407,7 @@ impl Repo {
             } else {
                 self.header(&mut b, c);
             }
-            diff.join().unwrap()
+            diff.join().unwrap_or_else(|_| Err(std::io::Error::other("git diff thread panicked")))
         });
         match diff {
             Ok(d) => parse_diff(&mut b, &d),
@@ -503,9 +503,9 @@ impl Repo {
                         s.spawn(move || git(cwd, &["describe", "--tags", "--abbrev=0", &p]))
                     })
                     .collect();
-                tags.into_iter().filter_map(|t| t.join().unwrap().ok()).map(|t| t.trim().to_string()).collect()
+                tags.into_iter().filter_map(|t| t.join().ok()?.ok()).map(|t| t.trim().to_string()).collect()
             });
-            (tags, precedes.join().unwrap())
+            (tags, precedes.join().unwrap_or_default())
         });
         let mut follows: Vec<String> = vec![];
         for t in tags {

@@ -34,7 +34,7 @@ fn bg(ui: &egui::Ui, c: Rgb) -> Color32 {
     if !dark {
         return rgb(c);
     }
-    let (lo, hi) = (*c.iter().min().unwrap() as i16, *c.iter().max().unwrap() as i16);
+    let (lo, hi) = (c[0].min(c[1]).min(c[2]) as i16, c[0].max(c[1]).max(c[2]) as i16);
     let shift = 255 - hi - lo;
     rgb(c.map(|v| (v as i16 + shift) as u8))
 }
@@ -709,7 +709,7 @@ impl App {
         let mut origin = None;
         let (lines, ys) = (&self.details.lines, &self.ys);
         let out = sa.show_viewport(ui, |ui, view| {
-            ui.set_height(*ys.last().unwrap());
+            ui.set_height(*ys.last().expect("ys ends with the total height"));
             let top = ui.max_rect().min;
             let first = ys.partition_point(|&y| y <= view.min.y).saturating_sub(1);
             for (i, line) in lines.iter().enumerate().skip(first) {
@@ -1164,7 +1164,7 @@ impl eframe::App for Gr {
                 ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
                 return;
             }
-            let (job, native, settings) = slot.take().unwrap();
+            let (job, native, settings) = slot.take().expect("checked to be finished above");
             match job.join().unwrap_or_else(|_| Err(std::io::Error::other("load thread panicked"))) {
                 Ok(repo) => {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Title(repo.title()));

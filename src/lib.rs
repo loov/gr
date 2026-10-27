@@ -218,7 +218,7 @@ fn git_log(dir: &PathBuf, args: &[&str]) -> io::Result<Vec<Commit>> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    let mut out = BufReader::with_capacity(1 << 16, child.stdout.take().unwrap());
+    let mut out = BufReader::with_capacity(1 << 16, child.stdout.take().expect("stdout is piped"));
     let mut commits = vec![];
     let mut rec = vec![];
     while out.read_until(0, &mut rec)? > 0 {
@@ -232,7 +232,7 @@ fn git_log(dir: &PathBuf, args: &[&str]) -> io::Result<Vec<Commit>> {
         rec.clear();
     }
     let mut err = String::new();
-    child.stderr.take().unwrap().read_to_string(&mut err)?;
+    child.stderr.take().expect("stderr is piped").read_to_string(&mut err)?;
     if !child.wait()?.success() {
         return Err(io::Error::other(err.trim().to_string()));
     }
@@ -327,7 +327,7 @@ impl Repo {
         // the other git calls are quick; run them while git log walks the history
         let (commits, side) = std::thread::scope(|s| {
             let side = s.spawn(|| Side::read(&cwd, &paths));
-            (git_log(&cwd, &args), side.join().unwrap())
+            (git_log(&cwd, &args), side.join().expect("Side::read panicked"))
         });
         let mut commits = commits?;
         if commits.is_empty() && default_revs && side.head.is_empty() {
@@ -572,13 +572,13 @@ impl Repo {
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())
                 .spawn()?;
-            let mut stdin = log.stdin.take().unwrap();
+            let mut stdin = log.stdin.take().expect("stdin is piped");
             let list = ids.join("\n") + "\n";
             let writer = std::thread::spawn(move || std::io::Write::write_all(&mut stdin, list.as_bytes()));
             let out = Command::new("git")
                 .current_dir(&self.cwd)
                 .args(["patch-id", "--stable"])
-                .stdin(log.stdout.take().unwrap())
+                .stdin(log.stdout.take().expect("stdout is piped"))
                 .output()?;
             let _ = writer.join();
             log.wait()?;
