@@ -7,20 +7,29 @@ pub const GIT: [(&str, &[&str]); 3] = [
     ("Rebase onto Upstream", &["rebase", "@{upstream}"]),
 ];
 
+/// A clicked menu entry.
+pub enum Action {
+    /// Index into GIT.
+    Git(usize),
+    Settings,
+}
+
 /// Draws the menu bar in the window, for platforms without a native one.
-/// Returns the clicked GIT entry.
-pub fn egui_bar(ui: &mut eframe::egui::Ui, enabled: bool) -> Option<usize> {
+pub fn egui_bar(ui: &mut eframe::egui::Ui, enabled: bool) -> Option<Action> {
     let mut clicked = None;
     eframe::egui::MenuBar::new().ui(ui, |ui| {
         ui.add_enabled_ui(enabled, |ui| {
             ui.menu_button("Git", |ui| {
                 for (i, (label, _)) in GIT.iter().enumerate() {
                     if ui.button(*label).clicked() {
-                        clicked = Some(i);
+                        clicked = Some(Action::Git(i));
                     }
                 }
             });
         });
+        if ui.button("Settings").clicked() {
+            clicked = Some(Action::Settings);
+        }
     });
     clicked
 }
@@ -33,6 +42,8 @@ mod native {
     use std::sync::mpsc::{channel, Receiver};
 
     use muda::{Menu, MenuEvent, MenuItem, Submenu};
+
+    use super::Action;
 
     pub struct Native {
         // the OS menu goes away when this drops
@@ -52,6 +63,7 @@ mod native {
             let menu = Menu::new();
             #[cfg(target_os = "macos")]
             {
+                use muda::accelerator::{Accelerator, Code, Modifiers};
                 use muda::PredefinedMenuItem as P;
                 // replaces winit's default menu, so carry its app menu over
                 let app = Submenu::with_items(
@@ -59,6 +71,8 @@ mod native {
                     true,
                     &[
                         &P::about(None, None),
+                        &P::separator(),
+                        &MenuItem::with_id("settings", "Settings…", true, Some(Accelerator::new(Some(Modifiers::SUPER), Code::Comma))),
                         &P::separator(),
                         &P::services(None),
                         &P::separator(),
@@ -93,9 +107,12 @@ mod native {
             Some(Native { _menu: menu, git, events })
         }
 
-        /// The GIT entry clicked since the last call.
-        pub fn clicked(&self) -> Option<usize> {
-            self.events.try_iter().find_map(|e| e.id.0.parse().ok())
+        /// The entry clicked since the last call.
+        pub fn clicked(&self) -> Option<Action> {
+            self.events.try_iter().find_map(|e| match e.id.0.as_str() {
+                "settings" => Some(Action::Settings),
+                id => id.parse().ok().map(Action::Git),
+            })
         }
 
         pub fn set_enabled(&self, enabled: bool) {
@@ -115,7 +132,7 @@ impl Native {
         None
     }
 
-    pub fn clicked(&self) -> Option<usize> {
+    pub fn clicked(&self) -> Option<super::Action> {
         None
     }
 

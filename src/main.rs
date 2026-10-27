@@ -5,6 +5,8 @@ use eframe::egui::{
     Id, Pos2, Rect, Sense, Stroke, TextEdit, Vec2,
 };
 mod menu;
+mod settings;
+mod theme;
 
 use egui_extras::{Column, TableBuilder};
 use gr::{Annotations, Details, Location, Locations, DiffOpts, Field, Hit, History, Mode, Query, RefKind, Repo, Rgb, Seg, Visit, REMOTE_PREFIX_BG};
@@ -21,51 +23,29 @@ fn rgb(c: Rgb) -> Color32 {
     Color32::from_rgb(c[0], c[1], c[2])
 }
 
-/// Dark theme: the Gruvbox Dark palette (MIT).
-const DARK_BG: Color32 = Color32::from_rgb(0x28, 0x28, 0x28);
-const DARK_TEXT: Color32 = Color32::from_rgb(0xeb, 0xdb, 0xb2);
-
-/// Gruvbox stand-ins for the core's gitk colours: graph palette, diff
-/// colours and node fills.
-fn gruvbox(c: Rgb) -> Option<Color32> {
-    let hex = |h: u32| Color32::from_rgb((h >> 16) as u8, (h >> 8) as u8, h as u8);
-    Some(hex(match c {
-        [0, 255, 0] | [0, 0x98, 0] | [0, 0x90, 0] => 0xb8bb26,
-        [255, 0, 0] | [0xc3, 0, 0] => 0xfb4934,
-        [0, 0, 255] => 0x83a598,
-        [255, 0, 255] | [160, 32, 240] => 0xd3869b,
-        [0xff, 0xa5, 0] => 0xfe8019,
-        [255, 255, 0] => 0xfabd2f,
-        [0xa9, 0xa9, 0xa9] => 0x928374,
-        [0xa5, 0x2a, 0x2a] => 0xd65d0e,
-        [0, 0, 0] => 0xebdbb2,
-        // diff backgrounds: deleted, added, file header
-        [0xff, 0xf3, 0xf3] => 0x3c2c2b,
-        [0xf0, 0xff, 0xf0] => 0x363728,
-        [0xaa, 0xaa, 0xaa] => 0x504945,
-        _ => return None,
-    }))
-}
-
-/// A core colour adapted to the theme. In dark mode known colours map to
-/// Gruvbox, others get their HSL lightness inverted.
+/// A core colour in the current theme. Colours the theme has no stand-in
+/// for are used as is in light mode and get their HSL lightness inverted in
+/// dark mode.
 fn bg(ui: &egui::Ui, c: Rgb) -> Color32 {
-    if !ui.visuals().dark_mode {
-        return rgb(c);
-    }
-    if let Some(m) = gruvbox(c) {
+    let dark = ui.visuals().dark_mode;
+    if let Some(m) = theme::current(ui.ctx(), dark).and_then(|t| t.map(c)) {
         return m;
+    }
+    if !dark {
+        return rgb(c);
     }
     let (lo, hi) = (*c.iter().min().unwrap() as i16, *c.iter().max().unwrap() as i16);
     let shift = 255 - hi - lo;
     rgb(c.map(|v| (v as i16 + shift) as u8))
 }
 
-/// Like `bg`, but lifted towards white in dark mode so saturated colours
-/// such as pure blue stay readable on a dark background.
+/// Like `bg`, but inverted colours are lifted towards white so saturated
+/// ones such as pure blue stay readable on a dark background.
 fn fg(ui: &egui::Ui, c: Rgb) -> Color32 {
+    let dark = ui.visuals().dark_mode;
+    let themed = theme::current(ui.ctx(), dark).is_some_and(|t| t.map(c).is_some());
     let col = bg(ui, c);
-    if ui.visuals().dark_mode && gruvbox(c).is_none() { col.lerp_to_gamma(Color32::WHITE, 0.35) } else { col }
+    if dark && !themed { col.lerp_to_gamma(Color32::WHITE, 0.35) } else { col }
 }
 
 fn galley(p: &Painter, text: &str, font: FontId, color: Color32) -> Arc<Galley> {
@@ -113,10 +93,11 @@ struct App {
     job: Option<std::thread::JoinHandle<Result<(), String>>>,
     /// The OS menu bar; None where the menu is drawn with egui.
     native: Option<menu::Native>,
+    settings: settings::Settings,
 }
 
 impl App {
-    fn new(repo: Repo, native: Option<menu::Native>) -> App {
+    fn new(repo: Repo, native: Option<menu::Native>, settings: settings::Settings) -> App {
         let sel = repo.head_row.unwrap_or(0);
         let (notes, status) = match repo.annotations() {
             Ok(n) => (n, String::new()),
@@ -149,6 +130,7 @@ impl App {
             max_cols: 0,
             job: None,
             native,
+            settings,
         };
         app.select(sel, true);
         // select clears the status, so report a bad gr.info after it
@@ -274,6 +256,9 @@ impl App {
         let cmd = |k| ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, k));
         if cmd(Key::Q) || cmd(Key::W) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        if cmd(Key::Comma) {
+            self.settings.open = true;
         }
         if cmd(Key::F) {
             self.find(true, true);
@@ -419,6 +404,9 @@ impl App {
             ui.separator();
             self.find_bar(ui);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if ui.button("⚙").on_hover_text("Settings").clicked() {
+                    self.settings.open = true;
+                }
                 egui::widgets::global_theme_preference_buttons(ui);
                 ui.separator();
                 let err = ui.visuals().error_fg_color;
@@ -771,6 +759,11 @@ fn draw_commit_cell(ui: &mut egui::Ui, c: &gr::Commit, segs: &[Seg], bold: bool,
 }
 
 impl eframe::App for App {
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        storage.set_string("light_theme", self.settings.light.clone());
+        storage.set_string("dark_theme", self.settings.dark.clone());
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll_job();
         self.keys(ui.ctx());
@@ -779,9 +772,12 @@ impl eframe::App for App {
         if self.native.is_none() {
             Panel::top("menubar").show(ui, |ui| clicked = menu::egui_bar(ui, self.job.is_none()));
         }
-        if let Some(i) = clicked.filter(|_| self.job.is_none()) {
-            self.run_git(ui.ctx(), menu::GIT[i].1);
+        match clicked {
+            Some(menu::Action::Git(i)) if self.job.is_none() => self.run_git(ui.ctx(), menu::GIT[i].1),
+            Some(menu::Action::Settings) => self.settings.open = true,
+            _ => {}
         }
+        self.settings.show(ui.ctx());
         let frame = egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(12, 8));
         Panel::top("toolbar").frame(frame).show(ui, |ui| self.toolbar(ui));
         Panel::bottom("statusbar").frame(frame).show(ui, |ui| {
@@ -845,31 +841,9 @@ fn main() {
             fonts.families.insert(FontFamily::Name("bold".into()), bold);
             cc.egui_ctx.set_fonts(fonts);
             // egui follows the system light/dark setting until the toolbar overrides it
-            let mut v = egui::Visuals::light();
-            v.override_text_color = Some(Color32::BLACK);
-            v.panel_fill = Color32::WHITE;
-            v.widgets.inactive.bg_stroke = Stroke::new(1.0, Color32::from_gray(160));
-            v.selection.bg_fill = Color32::from_gray(0xd9);
-            v.selection.stroke = Stroke::new(1.0, Color32::BLACK);
-            cc.egui_ctx.set_visuals_of(egui::Theme::Light, v);
-
-            let mut v = egui::Visuals::dark();
-            v.override_text_color = Some(DARK_TEXT);
-            v.weak_text_color = Some(Color32::from_rgb(0x92, 0x83, 0x74));
-            v.panel_fill = DARK_BG;
-            v.window_fill = DARK_BG;
-            v.faint_bg_color = Color32::from_rgb(0x32, 0x30, 0x2f);
-            v.extreme_bg_color = Color32::from_rgb(0x1d, 0x20, 0x21);
-            v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, Color32::from_rgb(0x3c, 0x38, 0x36));
-            v.widgets.inactive.weak_bg_fill = Color32::from_rgb(0x3c, 0x38, 0x36);
-            v.widgets.inactive.bg_fill = Color32::from_rgb(0x3c, 0x38, 0x36);
-            v.widgets.inactive.bg_stroke = Stroke::new(1.0, Color32::from_rgb(0x66, 0x5c, 0x54));
-            v.selection.bg_fill = Color32::from_rgb(0x50, 0x49, 0x45);
-            v.selection.stroke = Stroke::new(1.0, DARK_TEXT);
-            v.hyperlink_color = Color32::from_rgb(0x83, 0xa5, 0x98);
-            v.error_fg_color = Color32::from_rgb(0xfb, 0x49, 0x34);
-            cc.egui_ctx.set_visuals_of(egui::Theme::Dark, v);
-            Ok(Box::new(App::new(repo, menu::Native::new(cc))))
+            let saved = |k| cc.storage.and_then(|s| s.get_string(k));
+            let settings = settings::Settings::new(&cc.egui_ctx, saved("light_theme"), saved("dark_theme"));
+            Ok(Box::new(App::new(repo, menu::Native::new(cc), settings)))
         }),
     );
     if let Err(e) = res {

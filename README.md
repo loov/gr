@@ -7,6 +7,9 @@ A git history viewer in Rust and egui, based on gitk.
 - `src/main.rs` – the egui UI.
 - `fonts/` – Lyth Mono (SIL OFL), embedded and used where Menlo, loaded
   from macOS, is missing.
+- `themes/` – colour themes from iTerm2-Color-Schemes (MIT), in Ghostty's
+  format; only those whose own licence is known and fits GPL-3.0-or-later,
+  listed with licence and source in `themes/licenses.yml`.
 - `vendor/winit/` – winit 0.30.13 (Apache-2.0), patched so the macOS
   press-and-hold accent menu works in text fields.
 
@@ -15,4 +18,4 @@ Run with `cargo run --release -- [repo] [git log args] [-- paths]`, pinned to ru
 ## License
 
 GPL-3.0-or-later. gitk, which it is based on, is GPL-2.0-or-later. See `LICENSE`.
-Fonts and vendored winit keep their own licenses.
+Fonts, themes and vendored winit keep their own licenses.

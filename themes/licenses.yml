@@ -1,0 +1,813 @@
+# Licence and source of each theme in themes.txt, taken from
+# https://github.com/mbadolato/iTerm2-Color-Schemes/blob/27cbbb5ee7e98ff15484e7342b07a20606260176/licenses.yml
+# Only themes whose licence is known and compatible with GPL-3.0-or-later are included.
+
+'0x96f':
+  license: MIT
+  source: https://github.com/filipjanevski/0x96f-term-theme
+12-bit Rainbow:
+  license: CC0-1.0
+  source: https://iamkate.com/data/12-bit-rainbow/
+Adwaita:
+  license: LGPL-2.1-or-later
+  source: https://gitlab.gnome.org/GNOME/libadwaita/
+Adwaita Dark:
+  license: LGPL-2.1-or-later
+  source: https://gitlab.gnome.org/GNOME/libadwaita/
+Alabaster:
+  license: MIT
+  source: 'https://github.com/mkaschenko/iterm2-theme-alabaster
+    https://github.com/tonsky/sublime-scheme-alabaster'
+Andromeda:
+  license: MIT
+  source: https://github.com/EliverLara/Andromeda
+Atelier Sulphurpool:
+  license: MIT
+  source: https://atelierbram.mit-license.org/
+Atom:
+  license: WTFPL
+  source: https://github.com/bahlo/iterm-colors
+Atom One Dark:
+  license: MIT
+  source: https://github.com/atom/atom/tree/master/packages/one-dark-ui
+Atom One Light:
+  license: MIT
+  source: https://github.com/atom/atom/tree/master/packages/one-light-ui
+Aura:
+  license: MIT
+  source: https://github.com/daltonmenezes/aura-theme
+Ayu Mirage:
+  license: MIT
+  source: https://github.com/ayu-theme/vscode-ayu
+Black Metal:
+  license: MIT
+  source: https://github.com/metalelf0/base16-black-metal-scheme
+Black Metal (Bathory):
+  license: MIT
+  source: https://github.com/metalelf0/base16-black-metal-scheme
+Black Metal (Burzum):
+  license: MIT
+  source: https://github.com/metalelf0/base16-black-metal-scheme
+Black Metal (Dark Funeral):
+  license: MIT
+  source: https://github.com/metalelf0/base16-black-metal-scheme
+Black Metal (Gorgoroth):
+  license: MIT
+  source: https://github.com/metalelf0/base16-black-metal-scheme
+Black Metal (Immortal):
+  license: MIT
+  source: https://github.com/metalelf0/base16-black-metal-scheme
+Black Metal (Khold):
+  license: MIT
+  source: https://github.com/metalelf0/base16-black-metal-scheme
+Black Metal (Marduk):
+  license: MIT
+  source: https://github.com/metalelf0/base16-black-metal-scheme
+Black Metal (Mayhem):
+  license: MIT
+  source: https://github.com/metalelf0/base16-black-metal-scheme
+Black Metal (Nile):
+  license: MIT
+  source: https://github.com/metalelf0/base16-black-metal-scheme
+Black Metal (Venom):
+  license: MIT
+  source: https://github.com/metalelf0/base16-black-metal-scheme
+Blue Dolphin:
+  license: MIT
+  source: https://github.com/vimiomori/BlueDolphin
+Breadog:
+  license: 0BSD
+  source: https://gitlab.com/warningnonpotablewater/breadog
+Brogrammer:
+  license: WTFPL
+  source: https://github.com/bahlo/iterm-colors
+Builtin Dark:
+  license: GPL-2.0-or-later
+  source: https://github.com/gnachman/iTerm2/blob/master/plists/ColorPresets.plist
+  note: Essentially the same as the iTerm2 schemes
+Builtin Light:
+  license: GPL-2.0-or-later
+  source: https://github.com/gnachman/iTerm2/blob/master/plists/ColorPresets.plist
+  note: Essentially the same as the iTerm2 schemes
+Builtin Pastel Dark:
+  license: GPL-2.0-or-later
+  source: https://github.com/gnachman/iTerm2/blob/master/plists/ColorPresets.plist
+  note: Essentially the same as the iTerm2 schemes
+Builtin Tango Dark:
+  license: GPL-2.0-or-later
+  source: https://github.com/gnachman/iTerm2/blob/master/plists/ColorPresets.plist
+  note: Essentially the same as the iTerm2 schemes
+Builtin Tango Light:
+  license: GPL-2.0-or-later
+  source: https://github.com/gnachman/iTerm2/blob/master/plists/ColorPresets.plist
+  note: Essentially the same as the iTerm2 schemes
+Calamity:
+  license: MIT
+  source: https://github.com/Pustur/calamity-vscode
+Carbonfox:
+  license: MIT
+  source: https://github.com/EdenEast/nightfox.nvim/tree/main/extra
+  note: No Credits entry
+Catppuccin Frappe:
+  license: MIT
+  source: https://github.com/catppuccin/palette
+Catppuccin Latte:
+  license: MIT
+  source: https://github.com/catppuccin/palette
+Catppuccin Macchiato:
+  license: MIT
+  source: https://github.com/catppuccin/palette
+Catppuccin Mocha:
+  license: MIT
+  source: https://github.com/catppuccin/palette
+CGA:
+  license: MIT
+  source: https://github.com/jdhmtl/cga-theme
+Challenger Deep:
+  license: MIT
+  source: https://github.com/challenger-deep-theme/vim
+Citruszest:
+  license: MIT
+  source: https://github.com/zootedb0t/citruszest.nvim
+Cobalt Next:
+  license: MIT
+  source: https://github.com/davidleininger/cobaltnext-vscode
+Cobalt Next Dark:
+  license: MIT
+  source: https://github.com/davidleininger/cobaltnext-vscode
+Cobalt Next Minimal:
+  license: MIT
+  source: https://github.com/davidleininger/cobaltnext-vscode
+Dark Modern:
+  license: MIT
+  source: https://github.com/microsoft/vscode
+  note: based on the official Default Dark Modern VS Code theme
+Dark+:
+  license: MIT
+  source: https://github.com/microsoft/vscode
+  note: based on the official Default Dark+ VS Code theme
+Darkside:
+  license: WTFPL
+  source: https://github.com/bahlo/iterm-colors
+Dawnfox:
+  license: MIT
+  source: https://github.com/EdenEast/nightfox.nvim/tree/main/extra
+  note: No Credits entry
+Dayfox:
+  license: MIT
+  source: https://github.com/edeneast/nightfox.nvim
+Dimidium:
+  license: Zlib
+  source: https://github.com/dofuuz/dimidium
+Doom One:
+  license: MIT
+  source: https://github.com/doomemacs/themes
+Doom Peacock:
+  license: MIT
+  source: https://github.com/doomemacs/themes
+Dot Gov:
+  license: CC0-1.0
+  source: https://v1.designsystem.digital.gov/components/colors/
+  note: 'Listed in the research as Public Domain. The colours come from the US Web Design System, a US government work that also waives its rights worldwide under CC0 1.0: https://github.com/uswds/uswds/blob/v1.6.14/LICENSE.md'
+Duckbones:
+  license: MIT
+  source: https://github.com/zenbones-theme/zenbones.nvim
+Duotone Dark:
+  license: MIT
+  source: https://github.com/simurai/duotone-dark-syntax
+Duskfox:
+  license: MIT
+  source: https://github.com/EdenEast/nightfox.nvim/tree/main/extra
+  note: No Credits entry
+Electron Highlighter:
+  license: MIT
+  source: https://github.com/electron-highlighter/ghostty
+Elementary:
+  license: LGPL-3.0-or-later
+  source: https://github.com/elementary/terminal
+  note: https://github.com/mbadolato/iTerm2-Color-Schemes/pull/86
+Embark:
+  license: MIT
+  source: https://github.com/embark-theme/vim
+Everblush:
+  license: MIT
+  source: https://github.com/Everblush/everblush
+Everforest Dark Hard:
+  license: MIT
+  source: https://github.com/icewind/everforest.iterm2
+Everforest Light Med:
+  license: MIT
+  source: https://github.com/icewind/everforest.iterm2
+everslate:
+  license: MIT
+  source: https://terminalthemes.com/themes/everslate
+Fahrenheit:
+  license: CC-BY-SA-4.0
+  source: https://github.com/fcpg/vim-fahrenheit
+Fairyfloss:
+  license: MIT
+  source: https://github.com/sailorhg/fairyfloss
+Farmhouse Dark:
+  license: MIT
+  source: https://github.com/mattly/iterm-colors-farmhouse
+Farmhouse Light:
+  license: MIT
+  source: https://github.com/mattly/iterm-colors-farmhouse
+Flexoki Dark:
+  license: MIT
+  source: https://github.com/kepano/flexoki
+Flexoki Light:
+  license: MIT
+  source: https://github.com/kepano/flexoki
+Galaxy:
+  license: MIT
+  source: https://github.com/jglovier/galaxy-theme-iterm
+Galizur:
+  license: MIT
+  source: https://github.com/razielanarki/vscode-galizur-theme
+Ghostty Default Style Dark:
+  license: MIT
+  source: https://github.com/ghostty-org/ghostty
+GitHub Dark:
+  license: MIT
+  source: https://github.com/primer/github-vscode-theme
+GitHub Dark Colorblind:
+  license: MIT
+  source: https://github.com/primer/github-vscode-theme
+GitHub Dark Default:
+  license: MIT
+  source: https://github.com/primer/github-vscode-theme
+GitHub Dark Dimmed:
+  license: MIT
+  source: https://github.com/primer/github-vscode-theme
+GitHub Dark High Contrast:
+  license: MIT
+  source: https://github.com/primer/github-vscode-theme
+GitHub Light Colorblind:
+  license: MIT
+  source: https://github.com/primer/github-vscode-theme
+GitHub Light Default:
+  license: MIT
+  source: https://github.com/primer/github-vscode-theme
+GitHub Light High Contrast:
+  license: MIT
+  source: https://github.com/primer/github-vscode-theme
+GitLab Dark:
+  license: MIT
+  source: https://github.com/albertorestifo/gitlab-webide-theme
+GitLab Dark Grey:
+  license: MIT
+  source: https://github.com/albertorestifo/gitlab-webide-theme
+GitLab Light:
+  license: MIT
+  source: https://github.com/albertorestifo/gitlab-webide-theme
+Glacier:
+  license: WTFPL
+  source: https://github.com/bahlo/iterm-colors
+Gruber Darker:
+  license: MIT
+  source: https://github.com/rexim/gruber-darker-theme
+  note: Credits claims its "inspired" but color values match exactly
+Gruvbox Dark:
+  license: MIT
+  source: https://github.com/morhetz/gruvbox/blob/697c00291db857ca0af00ec154e5bd514a79191f/package.json#L6
+Gruvbox Dark Hard:
+  license: MIT
+  source: https://github.com/morhetz/gruvbox/blob/697c00291db857ca0af00ec154e5bd514a79191f/package.json#L6
+Gruvbox Light:
+  license: MIT
+  source: https://github.com/morhetz/gruvbox/blob/697c00291db857ca0af00ec154e5bd514a79191f/package.json#L6
+Gruvbox Light Hard:
+  license: MIT
+  source: https://github.com/morhetz/gruvbox/blob/697c00291db857ca0af00ec154e5bd514a79191f/package.json#L6
+Gruvbox Material:
+  license: MIT
+  source: https://github.com/sainnhe/gruvbox-material
+  note: Based on gruvbox
+Gruvbox Material Dark:
+  license: MIT
+  source: https://github.com/sainnhe/gruvbox-material
+  note: Based on gruvbox
+Gruvbox Material Light:
+  license: MIT
+  source: https://github.com/sainnhe/gruvbox-material
+  note: Based on gruvbox
+Harper:
+  license: CC-BY-SA-4.0
+  source: https://github.com/idleberg/Harper-iTerm2
+Havn Daggry:
+  license: GPL-3.0-or-later
+  source: https://github.com/Erlendms/Havn-themes
+Havn Skumring:
+  license: GPL-3.0-or-later
+  source: https://github.com/Erlendms/Havn-themes
+Hivacruz:
+  license: MIT
+  source: https://github.com/kinoute/hivacruz-itermcolors
+Hopscotch:
+  license: CC0-1.0
+  source: https://github.com/idleberg/Hopscotch
+Hopscotch.256:
+  license: CC0-1.0
+  source: https://github.com/idleberg/Hopscotch
+Horizon:
+  license: MIT
+  source: https://github.com/jolaleye/horizon-theme-vscode
+Horizon Bright:
+  license: MIT
+  source: https://github.com/jolaleye/horizon-theme-vscode
+Hybrid:
+  license: MIT
+  source: https://github.com/w0ng/vim-hybrid
+Iceberg Dark:
+  license: MIT
+  source: https://github.com/cocopon/iceberg.vim
+Iceberg Light:
+  license: MIT
+  source: https://github.com/cocopon/iceberg.vim
+iTerm2 Dark Background:
+  license: GPL-2.0-or-later
+  source: https://github.com/gnachman/iTerm2/blob/master/plists/ColorPresets.plist
+  note: Comes from iTerm2 v3.4.19
+iTerm2 Default:
+  license: GPL-2.0-or-later
+  source: https://github.com/gnachman/iTerm2/blob/master/plists/ColorPresets.plist
+  note: Comes from iTerm2 v3.4.19
+iTerm2 Light Background:
+  license: GPL-2.0-or-later
+  source: https://github.com/gnachman/iTerm2/blob/master/plists/ColorPresets.plist
+  note: Comes from iTerm2 v3.4.19
+iTerm2 Pastel Dark Background:
+  license: GPL-2.0-or-later
+  source: https://github.com/gnachman/iTerm2/blob/master/plists/ColorPresets.plist
+  note: Comes from iTerm2 v3.4.19
+iTerm2 Smoooooth:
+  license: GPL-2.0-or-later
+  source: https://github.com/gnachman/iTerm2/blob/master/plists/ColorPresets.plist
+  note: Comes from iTerm2 v3.4.19
+iTerm2 Solarized Dark:
+  license: GPL-2.0-or-later
+  source: https://github.com/gnachman/iTerm2/blob/master/plists/ColorPresets.plist
+  note: Comes from iTerm2 v3.4.19
+iTerm2 Solarized Light:
+  license: GPL-2.0-or-later
+  source: https://github.com/gnachman/iTerm2/blob/master/plists/ColorPresets.plist
+  note: Comes from iTerm2 v3.4.19
+iTerm2 Tango Dark:
+  license: GPL-2.0-or-later
+  source: https://github.com/gnachman/iTerm2/blob/master/plists/ColorPresets.plist
+  note: Comes from iTerm2 v3.4.19
+iTerm2 Tango Light:
+  license: GPL-2.0-or-later
+  source: https://github.com/gnachman/iTerm2/blob/master/plists/ColorPresets.plist
+  note: Comes from iTerm2 v3.4.19
+Japanesque:
+  license: MIT
+  source: https://github.com/aereal/vim-colors-japanesque
+Kanagawa Dragon:
+  license: MIT
+  source: https://github.com/rebelot/kanagawa.nvim
+Kanagawa Wave:
+  license: MIT
+  source: https://github.com/rebelot/kanagawa.nvim
+Kanagawabones:
+  license: MIT
+  source: https://github.com/zenbones-theme/zenbones.nvim
+Lumina Aurora Dark:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Aurora Light:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Canopy Dark:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Canopy Light:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Cherenkov Dark:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Cherenkov Light:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Dusk Dark:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Dusk Light:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Ember Dark:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Ember Light:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Espresso Dark:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Espresso Light:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Harbor Dark:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Harbor Light:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Lagoon Dark:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Lagoon Light:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Nebula Dark:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Nebula Light:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Olive Dark:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Olive Light:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Oxblood Dark:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Oxblood Light:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Parchment Dark:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Parchment Light:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Quartz Dark:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Quartz Dark Contrast:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Quartz Light:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Quartz Light Contrast:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Rayleigh Dark:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Lumina Rayleigh Light:
+  license: MIT
+  source: https://github.com/RazikSF/lumina-themes
+Material:
+  license: MIT
+  source: https://github.com/kaicataldo/material.vim
+Material Darker:
+  license: MIT
+  source: https://github.com/mbadolato/iTerm2-Color-Schemes/pull/241
+  note: Color values match the Material Darker from material.nvim
+Material Design Colors:
+  license: MIT
+  source: https://github.com/MartinSeeler/iterm2-material-design
+  note: based on http://www.google.com/design/spec/style/color.html
+Material Ocean:
+  license: MIT
+  source: https://github.com/kaicataldo/material.vim
+Matrix:
+  license: MIT
+  source: https://github.com/i3d/vim-jimbothemes/tree/2731e2279e627f64c52119ada3e13bbc2e99fabd
+Melange Dark:
+  license: MIT
+  source: https://github.com/savq/melange-nvim
+Melange Light:
+  license: MIT
+  source: https://github.com/savq/melange-nvim
+Mellifluous:
+  license: MIT
+  source: https://github.com/ramojus/mellifluous.nvim
+Mellow:
+  license: MIT
+  source: https://github.com/mellow-theme/mellow.nvim
+Miasma:
+  license: CC0-1.0
+  source: https://github.com/xero/miasma.nvim
+Molokai:
+  license: MIT
+  source: https://github.com/tomasr/molokai
+Moonfly:
+  license: MIT
+  source: https://github.com/bluz71/vim-moonfly-colors
+Neobones Dark:
+  license: MIT
+  source: https://github.com/zenbones-theme/zenbones.nvim
+Neobones Light:
+  license: MIT
+  source: https://github.com/zenbones-theme/zenbones.nvim
+Nephrite Forest:
+  license: MIT
+  source: https://github.com/Nephrite-theme/terminal
+Nephrite Jade:
+  license: MIT
+  source: https://github.com/Nephrite-theme/terminal
+Nephrite Mint:
+  license: MIT
+  source: https://github.com/Nephrite-theme/terminal
+Night Owlish Light:
+  license: MIT
+  source: https://github.com/praveenpuglia/night-owlish-theme
+  note: Based on https://github.com/sdras/night-owl-vscode-theme
+Nightfox:
+  license: MIT
+  source: https://github.com/edeneast/nightfox.nvim
+Nord:
+  license: MIT
+  source: https://github.com/nordtheme/iterm2
+  note: https://github.com/mbadolato/iTerm2-Color-Schemes/pull/243
+Nord Light:
+  license: MIT
+  source: https://github.com/nordtheme/iterm2
+Nordfox:
+  license: MIT
+  source: https://github.com/EdenEast/nightfox.nvim/tree/main/extra
+  note: No Credits entry
+Nvim Dark:
+  license: Apache-2.0
+  source: https://github.com/neovim/neovim/pull/26540
+  note: https://github.com/mbadolato/iTerm2-Color-Schemes/pull/429
+Nvim Light:
+  license: Apache-2.0
+  source: https://github.com/neovim/neovim/pull/26540
+  note: https://github.com/mbadolato/iTerm2-Color-Schemes/pull/429
+Oceanic Material:
+  license: MIT
+  source: https://github.com/rahulpatel/oceanic-material-iterm
+One Half Dark:
+  license: MIT
+  source: https://github.com/sonph/onehalf
+  note: based on Atom's One
+One Half Light:
+  license: MIT
+  source: https://github.com/sonph/onehalf
+  note: based on Atom's One
+Operator Mono Dark:
+  license: MIT
+  source: https://github.com/vharadkou/OperatorMonoThemes
+Overnight Slumber:
+  license: MIT
+  source: https://github.com/cevr/overnight
+  note: Based on https://github.com/sdras/night-owl-vscode-theme
+Oxocarbon:
+  license: MIT
+  source: https://github.com/nyoom-engineering/oxocarbon.nvim
+Paul Millr:
+  license: MIT
+  source: https://github.com/paulmillr/dotfiles/tree/master/terminal
+Poimandres:
+  license: MIT
+  source: https://github.com/drcmda/poimandres-theme
+Poimandres Darker:
+  license: MIT
+  source: https://github.com/drcmda/poimandres-theme
+Poimandres Storm:
+  license: MIT
+  source: https://github.com/drcmda/poimandres-theme
+Poimandres White:
+  license: MIT
+  source: https://github.com/drcmda/poimandres-theme
+Popping And Locking:
+  license: MIT
+  source: https://github.com/hedinne/popping-and-locking-vscode
+Primary:
+  license: Apache-2.0
+  source: https://github.com/google/vim-colorscheme-primary
+Rapture:
+  license: MIT
+  source: https://github.com/Pustur/rapture-vscode
+Rebecca:
+  license: MIT
+  source: https://github.com/vic/rebecca-theme
+Red Planet:
+  license: MIT
+  source: https://github.com/eliquious/Red-Planet-Theme
+Relaxed:
+  license: MIT
+  source: https://github.com/Relaxed-Theme/relaxed-terminal-themes
+  note: Was renamed from "Relaxed Afterglow" to "Relaxed" https://github.com/mbadolato/iTerm2-Color-Schemes/pull/158
+Rose Pine:
+  license: MIT
+  source: https://github.com/rose-pine/build
+  note: Endorsed by upstream https://github.com/rose-pine/ghostty
+Rose Pine Dawn:
+  license: MIT
+  source: https://github.com/rose-pine/build
+  note: Endorsed by upstream https://github.com/rose-pine/ghostty
+Rose Pine Moon:
+  license: MIT
+  source: https://github.com/rose-pine/build
+  note: Endorsed by upstream https://github.com/rose-pine/ghostty
+Rouge 2:
+  license: MIT
+  source: https://github.com/josefaidt/rouge-theme
+Ryuuko:
+  license: MIT
+  source: https://github.com/dylanaraps/ryuuko
+Selenized Dark:
+  license: MIT
+  source: https://github.com/jan-warchol/selenized
+Selenized Light:
+  license: MIT
+  source: https://github.com/jan-warchol/selenized
+Seoulbones Dark:
+  license: MIT
+  source: https://github.com/zenbones-theme/zenbones.nvim
+Seoulbones Light:
+  license: MIT
+  source: https://github.com/zenbones-theme/zenbones.nvim
+Seti:
+  license: MIT
+  source: https://github.com/jesseweed/seti-syntax/
+Shades Of Purple:
+  license: MIT
+  source: https://github.com/ahmadawais/shades-of-purple-iterm2
+Smyck:
+  license: MIT
+  source: https://github.com/hukl/Smyck-Color-Scheme
+Snazzy:
+  license: MIT
+  source: https://github.com/sindresorhus/iterm2-snazzy
+  note: https://github.com/mbadolato/iTerm2-Color-Schemes/pull/97
+Snazzy Soft:
+  license: MIT
+  source: https://github.com/mbadolato/iTerm2-Color-Schemes/pull/474
+  note: Based on Snazzy
+Solarized Osaka Night:
+  license: Apache-2.0
+  source: https://github.com/craftzdog/solarized-osaka.nvim
+Sonokai:
+  license: MIT
+  source: https://github.com/sainnhe/sonokai
+Spacedust:
+  license: MIT
+  source: https://github.com/hallski/spacedust-theme
+Spacegray:
+  license: MIT
+  source: https://github.com/SublimeText/Spacegray
+Spacegray Bright:
+  license: MIT
+  source: https://github.com/mbadolato/iTerm2-Color-Schemes/pull/452
+  note: Based on Spacegray
+Spacegray Eighties:
+  license: MIT
+  source: https://github.com/SublimeText/Spacegray
+Spacegray Eighties Dull:
+  license: MIT
+  source: https://github.com/mbadolato/iTerm2-Color-Schemes/commit/843cf2bb81ae932df2a5288d4e3f34135408ce9a
+  note: Based on Spacegray
+Squirrelsong Dark:
+  license: MIT
+  source: https://github.com/sapegin/squirrelsong
+Srcery:
+  license: MIT
+  source: https://github.com/srcery-colors/srcery-terminal
+Starlight:
+  license: Unlicense
+  source: https://github.com/CosmicToast/starlight
+Sublette:
+  license: MIT
+  source: https://github.com/sublee/sublette
+Subliminal:
+  license: MIT
+  source: https://github.com/gdsrosa/subliminal-itermcolors
+Sugarplum:
+  license: MIT
+  source: https://github.com/lemonlime0x3C33/iTerm2-Color-Schemes-Sugarplum
+Synthwave Everything:
+  license: MIT
+  source: https://github.com/robb0wen/synthwave-vscode
+Tango Adapted:
+  license: GPL-2.0-or-later
+  source: https://github.com/gnachman/iTerm2/blob/master/plists/ColorPresets.plist
+  note: based on iTerm2's Tango Light theme
+Tango Half Adapted:
+  license: GPL-2.0-or-later
+  source: https://github.com/gnachman/iTerm2/blob/master/plists/ColorPresets.plist
+  note: based on iTerm2's Tango Light theme
+Tearout:
+  license: MIT
+  source: https://github.com/leobeosab/tearout.nvim
+Terafox:
+  license: MIT
+  source: https://github.com/edeneast/nightfox.nvim
+This One Goes to 11:
+  license: MIT
+  source: https://terminalthemes.com/themes/this-one-goes-to-11
+TokyoNight:
+  license: Apache-2.0
+  source: https://github.com/folke/tokyonight.nvim
+TokyoNight Day:
+  license: Apache-2.0
+  source: https://github.com/folke/tokyonight.nvim
+TokyoNight Moon:
+  license: Apache-2.0
+  source: https://github.com/folke/tokyonight.nvim
+TokyoNight Night:
+  license: Apache-2.0
+  source: https://github.com/folke/tokyonight.nvim
+TokyoNight Storm:
+  license: Apache-2.0
+  source: https://github.com/folke/tokyonight.nvim
+Tomorrow:
+  license: MIT
+  source: https://github.com/chriskempson/tomorrow-theme
+Tomorrow Night:
+  license: MIT
+  source: https://github.com/chriskempson/tomorrow-theme/tree/master/iTerm2
+Tomorrow Night Blue:
+  license: MIT
+  source: https://github.com/chriskempson/tomorrow-theme/tree/master/iTerm2
+Tomorrow Night Bright:
+  license: MIT
+  source: https://github.com/chriskempson/tomorrow-theme/tree/master/iTerm2
+Tomorrow Night Burns:
+  license: MIT
+  source: https://github.com/mbadolato/iTerm2-Color-Schemes/pull/123
+  note: Based on Tomorrow Night
+Tomorrow Night Eighties:
+  license: MIT
+  source: https://github.com/chriskempson/tomorrow-theme/tree/master/iTerm2
+Vague:
+  license: MIT
+  source: https://github.com/vague-theme/vague.nvim
+Vesper:
+  license: MIT
+  source: https://github.com/raunofreiberg/vesper
+Vimbones:
+  license: MIT
+  source: https://github.com/zenbones-theme/zenbones.nvim
+Whimsy:
+  license: MIT
+  source: https://github.com/rod/iterm2-whimsy/tree/master
+Wild Cherry:
+  license: MIT
+  source: https://github.com/mashaal/wild-cherry
+Xcode Dark:
+  license: ISC
+  source: https://github.com/lunacookies/vim-colors-xcode
+Xcode Dark hc:
+  license: ISC
+  source: https://github.com/lunacookies/vim-colors-xcode
+Xcode Light:
+  license: ISC
+  source: https://github.com/lunacookies/vim-colors-xcode
+Xcode Light hc:
+  license: ISC
+  source: https://github.com/lunacookies/vim-colors-xcode
+Xcode WWDC:
+  license: ISC
+  source: https://github.com/lunacookies/vim-colors-xcode
+Zacess Cream:
+  license: MIT
+  source: https://github.com/zacesshq/themes/blob/main/LICENSE
+Zacess Dark:
+  license: MIT
+  source: https://github.com/zacesshq/themes/blob/main/LICENSE
+Zacess Deep Contrast Dark:
+  license: MIT
+  source: https://github.com/zacesshq/themes/blob/main/LICENSE
+Zacess Deep Contrast Light:
+  license: MIT
+  source: https://github.com/zacesshq/themes/blob/main/LICENSE
+Zacess High Contrast Dark:
+  license: MIT
+  source: https://github.com/zacesshq/themes/blob/main/LICENSE
+Zacess High Contrast Light:
+  license: MIT
+  source: https://github.com/zacesshq/themes/blob/main/LICENSE
+Zacess Light:
+  license: MIT
+  source: https://github.com/zacesshq/themes/blob/main/LICENSE
+Zacess Yellow on Black:
+  license: MIT
+  source: https://github.com/zacesshq/themes/blob/main/LICENSE
+Zenbones:
+  license: MIT
+  source: https://github.com/zenbones-theme/zenbones.nvim
+Zenbones Dark:
+  license: MIT
+  source: https://github.com/zenbones-theme/zenbones.nvim
+Zenbones Light:
+  license: MIT
+  source: https://github.com/zenbones-theme/zenbones.nvim
+Zenburned:
+  license: MIT
+  source: https://github.com/zenbones-theme/zenbones.nvim
+Zenwritten Dark:
+  license: MIT
+  source: https://github.com/zenbones-theme/zenbones.nvim
+Zenwritten Light:
+  license: MIT
+  source: https://github.com/zenbones-theme/zenbones.nvim
