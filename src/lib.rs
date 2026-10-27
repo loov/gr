@@ -495,15 +495,26 @@ impl Repo {
     /// Branches, tags and the like, for the sidebar.
     pub fn locations(&self) -> Locations {
         let mut l = Locations::read(&self.cwd);
-        // ponytail: main/master stand in for the default branch; read origin/HEAD if other names matter
-        let base = ["main", "master", "remotes/origin/main", "remotes/origin/master"];
         let mut on_base = vec![false; self.commits.len()];
-        self.walk(base.iter().filter_map(|b| self.heads.get(*b)), &mut on_base, |_| {});
+        self.walk(self.base_branches().iter().filter_map(|b| self.heads.get(b)), &mut on_base, |_| {});
         for b in &mut l.branches {
             let mut seen = on_base.clone();
             self.walk([&b.id], &mut seen, |c| b.own.push(c.id().to_string()));
         }
         l
+    }
+
+    /// The default branch, locally and on origin: origin/HEAD's target,
+    /// else main or master.
+    fn base_branches(&self) -> Vec<String> {
+        let default = git(&self.cwd, &["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"])
+            .ok()
+            .and_then(|r| r.trim().strip_prefix("origin/").map(String::from));
+        let names = match default {
+            Some(d) => vec![d],
+            None => vec!["main".to_string(), "master".to_string()],
+        };
+        names.iter().flat_map(|n| [n.clone(), format!("remotes/origin/{n}")]).collect()
     }
 
     /// Calls `f` on every commit reachable from `tips` and not yet `seen`, marking it seen.
@@ -768,11 +779,11 @@ mod tests {
     #[test]
     fn branch_own_commits() {
         let repo = Repo::open(env!("CARGO_MANIFEST_DIR"), &[]).unwrap();
-        let base: Vec<&str> = ["main", "master", "origin/main", "origin/master"].into_iter()
+        let base: Vec<String> = repo.base_branches().into_iter().map(|b| b.replace("remotes/", ""))
             .filter(|b| git(&repo.dir, &["rev-parse", "-q", "--verify", b]).is_ok()).collect();
         for b in repo.locations().branches {
             let mut args = vec!["rev-list", b.name.as_str(), "--not"];
-            args.extend(&base);
+            args.extend(base.iter().map(String::as_str));
             let mut want: Vec<String> = git(&repo.dir, &args).unwrap().lines().map(String::from).collect();
             let mut got = b.own.clone();
             (want.sort(), got.sort());

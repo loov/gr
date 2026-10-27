@@ -14,7 +14,7 @@ pub struct Location {
     pub current: bool,
     /// Commits (behind, ahead) of the upstream branch.
     pub track: Option<(usize, usize)>,
-    /// Branches: ids of the commits not on main or master.
+    /// Branches: ids of the commits not on the default branch.
     pub own: Vec<String>,
 }
 
