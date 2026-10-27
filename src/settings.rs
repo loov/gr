@@ -130,6 +130,7 @@ impl Settings {
                         ui.selectable_value(&mut pref, p, label);
                     }
                     ui.ctx().set_theme(pref);
+                    None
                 });
             }
             if rows[1] {
@@ -138,10 +139,11 @@ impl Settings {
                     if ui.button("Reset").clicked() {
                         zoom = 1.0;
                     }
-                    ui.add(egui::Slider::new(&mut zoom, 0.5..=2.0).custom_formatter(|v, _| format!("{:.0}%", v * 100.0)));
+                    let r = ui.add(egui::Slider::new(&mut zoom, 0.5..=2.0).custom_formatter(|v, _| format!("{:.0}%", v * 100.0)));
                     if zoom != ui.ctx().zoom_factor() {
                         ui.ctx().set_zoom_factor(zoom);
                     }
+                    Some(r)
                 });
             }
             for (_, title, desc, current, list) in groups.iter().filter(|g| !g.4.is_empty()) {
@@ -178,14 +180,10 @@ impl Settings {
             heading(ui, "Diff", &mut self.jump);
             ui.add_space(8.0);
             if rows[0] {
-                row(ui, CONTEXT, |ui| {
-                    ui.add(egui::DragValue::new(&mut self.diff.context).range(0..=1000));
-                });
+                row(ui, CONTEXT, |ui| Some(ui.add(egui::DragValue::new(&mut self.diff.context).range(0..=1000))));
             }
             if rows[1] {
-                row(ui, SPACE, |ui| {
-                    ui.checkbox(&mut self.diff.ignore_space, "");
-                });
+                row(ui, SPACE, |ui| Some(ui.checkbox(&mut self.diff.ignore_space, "")));
             }
         }
 
@@ -195,15 +193,22 @@ impl Settings {
     }
 }
 
-/// A titled settings row with its control on the right.
-fn row(ui: &mut egui::Ui, (title, desc): (&str, &str), control: impl FnOnce(&mut egui::Ui)) {
+/// A titled settings row with its control on the right; the text wraps in
+/// the width the control leaves. A returned control is named by the title.
+fn row(ui: &mut egui::Ui, (title, desc): (&str, &str), control: impl FnOnce(&mut egui::Ui) -> Option<egui::Response>) {
     egui::Frame::group(ui.style()).inner_margin(12.0).show(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.vertical(|ui| {
-                ui.label(RichText::new(title).size(15.0).strong());
+        ui.set_width(ui.available_width());
+        // top-aligned: a centred layout grows to the scroll area's height
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+            let r = control(ui);
+            ui.add_space(16.0);
+            ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                let label = ui.label(RichText::new(title).size(15.0).strong());
                 ui.label(RichText::new(desc).weak());
+                if let Some(r) = r {
+                    r.labelled_by(label.id);
+                }
             });
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), control);
         });
     });
 }

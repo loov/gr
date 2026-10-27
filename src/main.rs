@@ -1103,6 +1103,11 @@ mod tests {
             harness.run();
             harness.snapshot(name);
         }
+        harness.state_mut().settings.open = true;
+        harness.ctx.set_theme(egui::ThemePreference::Dark);
+        harness.set_size(egui::Vec2::new(1100.0, 760.0));
+        harness.run();
+        harness.snapshot("settings");
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
