@@ -9,7 +9,7 @@ mod settings;
 mod theme;
 
 use egui_extras::{Column, TableBuilder};
-use gr::{Annotations, Details, Location, Locations, DiffOpts, Field, Hit, History, Mode, Query, RefKind, Repo, Rgb, Seg, Visit, REMOTE_PREFIX_BG};
+use gr::{Annotations, Details, Location, Locations, DiffOpts, Field, Hit, History, Mode, Query, RefKind, Repo, Rgb, Seg, Visit, REMOTE_PREFIX};
 
 const ROW_H: f32 = 18.0;
 /// Commit list rows hold two lines: subject, then committer and date.
@@ -802,21 +802,24 @@ fn draw_commit_cell(ui: &mut egui::Ui, c: &gr::Commit, segs: &[Seg], bold: bool,
     let y = node.y;
     if !c.refs.is_empty() {
         p.hline(node.x..=x, y, Stroke::new(1.0, text));
+        // gitk's label colours, as a tint of the theme's matching colour
+        let panel = ui.visuals().panel_fill;
+        let tint = |c: Rgb| panel.lerp_to_gamma(fg(ui, c), 0.3);
         for r in &c.refs {
-            let (bg, fg) = r.colors();
+            let accent = fg(ui, r.accent());
             let check = r.kind == RefKind::Head && done.contains(r.name.as_str());
             let name = if check { format!("{} ✓", r.name) } else { r.name.clone() };
-            let g = galley(p, &name, font(11.0, r.current), rgb(fg));
+            let g = galley(p, &name, font(11.0, r.current), text);
             let w = g.size().x + 6.0;
             let b = Rect::from_min_size(Pos2::new(x, rect.top() + 2.0), Vec2::new(w, ROW_H - 4.0));
-            p.rect_filled(b, 0.0, rgb(bg));
+            p.rect_filled(b, 2.0, tint(r.accent()));
             let n = r.remote_prefix_len();
             if r.kind == RefKind::Remote && n > 0 {
-                let pw = galley(p, &r.name[..n], font(11.0, r.current), Color32::BLACK).size().x + 3.0;
-                p.rect_filled(Rect::from_min_size(b.min, Vec2::new(pw, b.height())), 0.0, rgb(REMOTE_PREFIX_BG));
+                let pw = galley(p, &r.name[..n], font(11.0, r.current), text).size().x + 3.0;
+                p.rect_filled(Rect::from_min_size(b.min, Vec2::new(pw, b.height())), 2.0, tint(REMOTE_PREFIX));
             }
-            p.rect_stroke(b, 0.0, Stroke::new(1.0, Color32::BLACK), egui::StrokeKind::Inside);
-            paint_text(p, x + 3.0, y, g, rgb(fg));
+            p.rect_stroke(b, 2.0, Stroke::new(1.0, accent), egui::StrokeKind::Inside);
+            paint_text(p, x + 3.0, y, g, text);
             x += w + 4.0;
         }
     }

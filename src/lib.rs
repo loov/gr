@@ -46,16 +46,17 @@ pub struct Ref {
 }
 
 impl Ref {
-    /// Label (background, foreground) colours, gitk defaults.
-    pub fn colors(&self) -> (Rgb, Rgb) {
+    /// The label's colour, one of gitk's: yellow tags, green branches,
+    /// blue for other refs.
+    pub fn accent(&self) -> Rgb {
         match self.kind {
-            RefKind::Tag => ([255, 255, 0], [0, 0, 0]),
-            RefKind::Head | RefKind::Remote => ([0, 255, 0], [0, 0, 0]),
-            RefKind::Other => ([0xdd, 0xdd, 0xff], [0, 0, 0]),
+            RefKind::Tag => [255, 255, 0],
+            RefKind::Head | RefKind::Remote => [0, 255, 0],
+            RefKind::Other => [0, 0, 255],
         }
     }
 
-    /// Length of the `remotes/<name>/` prefix, which gitk shades `#ffddaa`.
+    /// Length of the `remotes/<name>/` prefix, which gitk shades orange.
     pub fn remote_prefix_len(&self) -> usize {
         if self.kind != RefKind::Remote {
             return 0;
@@ -67,7 +68,8 @@ impl Ref {
     }
 }
 
-pub const REMOTE_PREFIX_BG: Rgb = [0xff, 0xdd, 0xaa];
+/// Colour of the `remotes/<name>/` prefix.
+pub const REMOTE_PREFIX: Rgb = [0xff, 0xa5, 0x00];
 
 #[derive(Clone, Debug)]
 pub struct Commit {
