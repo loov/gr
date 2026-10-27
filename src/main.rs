@@ -749,7 +749,8 @@ fn draw_commit_cell(ui: &mut egui::Ui, c: &gr::Commit, segs: &[Seg], bold: bool,
             x += w + 4.0;
         }
     }
-    p.circle(node, 3.5, fg(ui, c.node_fill), Stroke::new(1.0, Color32::BLACK));
+    let fill = if ok { [0, 0x98, 0] } else { c.node_fill };
+    p.circle(node, 3.5, fg(ui, fill), Stroke::new(1.0, Color32::BLACK));
     let g = galley(p, c.subject(), font(13.0, bold), text);
     paint_text(p, x, y, g, text);
 
