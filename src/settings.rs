@@ -103,6 +103,10 @@ impl Settings {
         }
         if let Some(t) = picked {
             t.apply(ui.ctx());
+            // show the pick even when the other mode is on
+            if t.is_dark() != ui.visuals().dark_mode {
+                ui.ctx().set_theme(if t.is_dark() { ThemePreference::Dark } else { ThemePreference::Light });
+            }
             let slot = if t.is_dark() { &mut self.dark } else { &mut self.light };
             *slot = t.name;
         }
