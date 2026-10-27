@@ -63,6 +63,44 @@ fn paint_text(p: &Painter, x: f32, y: f32, g: Arc<Galley>, color: Color32) -> f3
     w
 }
 
+/// What `App::keys` does, for the Help menu. Cmd is Ctrl outside macOS.
+const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
+    ("Commits", &[
+        ("↑ ↓  p n", "previous, next commit"),
+        ("PageUp PageDown", "a page of commits up, down"),
+        ("Home End", "first, last commit"),
+        ("← z h", "back in the visit history"),
+        ("→ x l", "forward in the visit history"),
+        ("Cmd+1 … Cmd+9", "go to the first … ninth parent"),
+        ("g", "type a commit id, branch or tag to go to"),
+        ("Cmd+↑ Cmd+↓", "scroll the list by a commit"),
+        ("Cmd+PageUp Cmd+PageDown", "scroll the list by a page"),
+        ("Cmd+Home Cmd+End", "scroll the list to the top, bottom"),
+    ]),
+    ("Review", &[
+        ("k", "mark the commit ok, or unmark it"),
+        ("j", "next commit to review on this branch"),
+    ]),
+    ("Find", &[
+        ("/", "type what to find"),
+        ("Enter  Cmd+F", "next match"),
+        ("?", "previous match"),
+        ("Cmd+G", "next match, without wrapping around"),
+        ("Shift+↓ Shift+↑", "next, previous match without wrapping around"),
+    ]),
+    ("Diff", &[
+        ("Space Backspace", "a page down, up"),
+        ("d u", "18 lines down, up"),
+        ("f b", "next, previous file"),
+    ]),
+    ("Window", &[
+        ("r  F5", "reload"),
+        ("Cmd+,", "settings"),
+        ("Cmd+plus Cmd+minus", "text size"),
+        ("Cmd+W  Cmd+Q", "close"),
+    ]),
+];
+
 struct App {
     repo: Repo,
     locs: Locations,
@@ -94,6 +132,8 @@ struct App {
     native: Option<menu::Native>,
     settings: settings::Settings,
     watch: gr::Watch,
+    /// The keyboard shortcuts window is open.
+    shortcuts: bool,
     /// A reload running in the background.
     loading: Option<std::thread::JoinHandle<std::io::Result<Repo>>>,
     ctx: egui::Context,
@@ -138,6 +178,7 @@ impl App {
             native,
             settings,
             watch,
+            shortcuts: false,
             loading: None,
             ctx: ctx.clone(),
         };
@@ -862,8 +903,22 @@ impl eframe::App for App {
         match clicked {
             Some(menu::Action::Git(i)) if self.job.is_none() => self.run_git(ui.ctx(), menu::GIT[i].1),
             Some(menu::Action::Settings) => self.settings.open = true,
+            Some(menu::Action::Shortcuts) => self.shortcuts = true,
             _ => {}
         }
+        egui::Window::new("Keyboard Shortcuts").open(&mut self.shortcuts).resizable(false).collapsible(false).show(ui.ctx(), |ui| {
+            for &(group, keys) in SHORTCUTS {
+                ui.label(RichText::new(group).strong());
+                egui::Grid::new(group).num_columns(2).spacing([24.0, 4.0]).show(ui, |ui| {
+                    for (k, what) in keys {
+                        ui.label(RichText::new(*k).monospace());
+                        ui.label(*what);
+                        ui.end_row();
+                    }
+                });
+                ui.add_space(8.0);
+            }
+        });
         if self.settings.show(ui.ctx()) {
             self.select(self.sel, false);
         }

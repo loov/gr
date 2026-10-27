@@ -12,6 +12,7 @@ pub enum Action {
     /// Index into GIT.
     Git(usize),
     Settings,
+    Shortcuts,
 }
 
 /// Draws the menu bar in the window, for platforms without a native one.
@@ -30,6 +31,11 @@ pub fn egui_bar(ui: &mut eframe::egui::Ui, enabled: bool) -> Option<Action> {
         if ui.button("Settings").clicked() {
             clicked = Some(Action::Settings);
         }
+        ui.menu_button("Help", |ui| {
+            if ui.button("Keyboard Shortcuts").clicked() {
+                clicked = Some(Action::Shortcuts);
+            }
+        });
     });
     clicked
 }
@@ -60,6 +66,7 @@ mod native {
             for item in &git {
                 git_menu.append(item).ok()?;
             }
+            let help = Submenu::with_items("Help", true, &[&MenuItem::with_id("shortcuts", "Keyboard Shortcuts", true, None)]).ok()?;
             let menu = Menu::new();
             #[cfg(target_os = "macos")]
             {
@@ -85,14 +92,15 @@ mod native {
                 )
                 .ok()?;
                 let window = Submenu::with_items("Window", true, &[&P::minimize(None), &P::fullscreen(None), &P::bring_all_to_front(None)]).ok()?;
-                menu.append_items(&[&app, &git_menu, &window]).ok()?;
+                menu.append_items(&[&app, &git_menu, &window, &help]).ok()?;
                 window.set_as_windows_menu_for_nsapp();
+                help.set_as_help_menu_for_nsapp();
                 menu.init_for_nsapp();
             }
             #[cfg(target_os = "windows")]
             {
                 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-                menu.append(&git_menu).ok()?;
+                menu.append_items(&[&git_menu, &help]).ok()?;
                 let RawWindowHandle::Win32(h) = cc.window_handle().ok()?.as_raw() else { return None };
                 // SAFETY: the handle is eframe's live main window.
                 unsafe { menu.init_for_hwnd(h.hwnd.get()) }.ok()?;
@@ -111,6 +119,7 @@ mod native {
         pub fn clicked(&self) -> Option<Action> {
             self.events.try_iter().find_map(|e| match e.id.0.as_str() {
                 "settings" => Some(Action::Settings),
+                "shortcuts" => Some(Action::Shortcuts),
                 id => id.parse().ok().map(Action::Git),
             })
         }
