@@ -32,6 +32,29 @@ impl Annotations {
         self.tags.get(id).is_some_and(|t| t.contains(tag))
     }
 
+    /// Ids carrying `tag`.
+    pub fn with_tag<'a>(&'a self, tag: &'a str) -> impl Iterator<Item = &'a str> + 'a {
+        self.tags.iter().filter(move |(_, t)| t.contains(tag)).map(|(id, _)| id.as_str())
+    }
+
+    /// The value of `<key> <value>` tags on `id`.
+    pub fn value(&self, id: &str, key: &str) -> Option<&str> {
+        self.tags.get(id)?.iter().find_map(|t| t.strip_prefix(key)?.strip_prefix(' '))
+    }
+
+    /// Sets `<key> <value>` on `id`, or removes it with None, and saves.
+    pub fn set_value(&mut self, id: &str, key: &str, value: Option<&str>) -> io::Result<()> {
+        let tags = self.tags.entry(id.to_string()).or_default();
+        tags.retain(|t| t.strip_prefix(key).is_none_or(|r| !r.starts_with(' ')));
+        if let Some(v) = value {
+            tags.insert(format!("{key} {v}"));
+        }
+        if tags.is_empty() {
+            self.tags.remove(id);
+        }
+        self.save()
+    }
+
     /// Adds or removes `tag` on `id` and saves; returns whether it is now set.
     pub fn toggle(&mut self, id: &str, tag: &str) -> io::Result<bool> {
         let tags = self.tags.entry(id.to_string()).or_default();
@@ -73,6 +96,13 @@ mod tests {
         assert!(!a.toggle("def", "ok").unwrap());
         let b = Annotations::load(path.clone()).unwrap();
         assert!(b.has("abc", "ok") && !b.has("def", "ok"));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "abc ok\n");
+        let mut b = b;
+        b.set_value("abc", "patch-id", Some("p1")).unwrap();
+        b.set_value("abc", "patch-id", Some("p2")).unwrap();
+        assert_eq!(b.value("abc", "patch-id"), Some("p2"));
+        assert_eq!(b.with_tag("ok").collect::<Vec<_>>(), ["abc"]);
+        b.set_value("abc", "patch-id", None).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "abc ok\n");
         std::fs::remove_dir_all(dir).unwrap();
     }

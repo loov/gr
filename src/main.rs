@@ -135,6 +135,7 @@ impl App {
         app.select(sel, true);
         // select clears the status, so report a bad gr.info after it
         app.status = status;
+        app.carry_marks();
         app
     }
 
@@ -185,12 +186,15 @@ impl App {
             Ok((repo, row)) => {
                 self.repo = repo;
                 self.locs = self.repo.locations();
-                match self.repo.annotations() {
-                    Ok(n) => self.notes = n,
-                    Err(e) => self.status = format!("gr.info: {e}"),
-                }
                 self.history = History::default();
                 self.select(row, true);
+                match self.repo.annotations() {
+                    Ok(n) => {
+                        self.notes = n;
+                        self.carry_marks();
+                    }
+                    Err(e) => self.status = format!("gr.info: {e}"),
+                }
             }
             Err(e) => self.status = e.to_string(),
         }
@@ -366,13 +370,28 @@ impl App {
         }
     }
 
+    /// Moves ok marks from rewritten commits onto their new versions.
+    fn carry_marks(&mut self) {
+        let own: std::collections::BTreeSet<&str> = self.locs.branches.iter().flat_map(|b| &b.own).map(String::as_str).collect();
+        let own: Vec<&str> = own.into_iter().collect();
+        if let Err(e) = self.repo.carry_tag(&mut self.notes, "ok", &own) {
+            self.status = format!("gr.info: {e}");
+        }
+    }
+
     /// Toggles `tag` on the selected commit.
     fn toggle_note(&mut self, tag: &str) {
         let c = &self.repo.commits[self.sel];
         if c.is_fake() {
             return;
         }
-        if let Err(e) = self.notes.toggle(c.id(), tag) {
+        let id = c.id().to_string();
+        let res = self.notes.toggle(&id, tag).and_then(|set| {
+            // the patch id lets the mark follow the commit through a rebase
+            let pid = if set && tag == "ok" { self.repo.patch_ids(&[&id]).remove(&id) } else { None };
+            self.notes.set_value(&id, "patch-id", pid.as_deref())
+        });
+        if let Err(e) = res {
             self.status = format!("gr.info: {e}");
         }
     }

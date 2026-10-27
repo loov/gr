@@ -504,6 +504,68 @@ impl Repo {
         l
     }
 
+    /// `git patch-id --stable` of each of `ids`, which survives rebases;
+    /// merges have none.
+    pub fn patch_ids(&self, ids: &[&str]) -> HashMap<String, String> {
+        let run = || -> io::Result<String> {
+            let mut log = Command::new("git")
+                .current_dir(&self.cwd)
+                .args(["log", "-p", "--no-walk=unsorted", "--stdin"])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()?;
+            let mut stdin = log.stdin.take().unwrap();
+            let list = ids.join("\n") + "\n";
+            let writer = std::thread::spawn(move || std::io::Write::write_all(&mut stdin, list.as_bytes()));
+            let out = Command::new("git")
+                .current_dir(&self.cwd)
+                .args(["patch-id", "--stable"])
+                .stdin(log.stdout.take().unwrap())
+                .output()?;
+            let _ = writer.join();
+            log.wait()?;
+            Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+        };
+        let out = if ids.is_empty() { String::new() } else { run().unwrap_or_default() };
+        out.lines().filter_map(|l| l.split_once(' ')).map(|(p, id)| (id.to_string(), p.to_string())).collect()
+    }
+
+    /// Moves `tag` from commits that left the view (rebased, amended) to
+    /// `candidates` with the same patch id. Returns how many moved.
+    // ponytail: unmatched old marks make every reload patch-id the candidates; prune them if that gets slow
+    pub fn carry_tag(&self, notes: &mut Annotations, tag: &str, candidates: &[&str]) -> io::Result<usize> {
+        // marks from before patch ids were stored
+        let bare: Vec<String> = notes
+            .with_tag(tag)
+            .filter(|id| self.index_of(id).is_some() && notes.value(id, "patch-id").is_none())
+            .map(String::from)
+            .collect();
+        for (id, pid) in self.patch_ids(&bare.iter().map(String::as_str).collect::<Vec<_>>()) {
+            notes.set_value(&id, "patch-id", Some(&pid))?;
+        }
+        let gone: HashMap<String, String> = notes
+            .with_tag(tag)
+            .filter(|id| self.index_of(id).is_none())
+            .filter_map(|id| Some((notes.value(id, "patch-id")?.to_string(), id.to_string())))
+            .collect();
+        if gone.is_empty() {
+            return Ok(0);
+        }
+        let todo: Vec<&str> = candidates.iter().copied().filter(|id| !notes.has(id, tag)).collect();
+        let mut moved = 0;
+        for (id, pid) in self.patch_ids(&todo) {
+            if let Some(old) = gone.get(&pid) {
+                notes.toggle(&id, tag)?;
+                notes.set_value(&id, "patch-id", Some(&pid))?;
+                notes.toggle(old, tag)?;
+                notes.set_value(old, "patch-id", None)?;
+                moved += 1;
+            }
+        }
+        Ok(moved)
+    }
+
     /// The default branch, locally and on origin: origin/HEAD's target,
     /// else main or master.
     fn base_branches(&self) -> Vec<String> {
@@ -829,6 +891,56 @@ mod tests {
         sh(&["commit", "-q", "--allow-empty", "-m", "c2"]);
         let (r, sel) = r.reload(row(&r, "b")).unwrap();
         assert_eq!(subject(&r, sel), "b2");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn marks_follow_rebase() {
+        let dir = std::env::temp_dir().join(format!("gr-carry-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let sh = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .current_dir(&dir)
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgSign=false"])
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "{args:?}");
+        };
+        let write = |name: &str, text: &str| std::fs::write(dir.join(name), text).unwrap();
+        sh(&["init", "-q", "-b", "main"]);
+        write("a", "a\n");
+        sh(&["add", "a"]);
+        sh(&["commit", "-q", "-m", "root"]);
+        sh(&["checkout", "-q", "-b", "topic"]);
+        write("b", "b\n");
+        sh(&["add", "b"]);
+        sh(&["commit", "-q", "-m", "topic work"]);
+        let repo = Repo::open(&dir, &[]).unwrap();
+        let mut notes = repo.annotations().unwrap();
+        let old = repo.heads["topic"].clone();
+        notes.toggle(&old, "ok").unwrap();
+        // no patch id yet, as marks made before they were stored
+        assert_eq!(repo.carry_tag(&mut notes, "ok", &[]).unwrap(), 0);
+        assert!(notes.value(&old, "patch-id").is_some());
+
+        sh(&["checkout", "-q", "main"]);
+        write("c", "c\n");
+        sh(&["add", "c"]);
+        sh(&["commit", "-q", "-m", "main work"]);
+        sh(&["rebase", "-q", "main", "topic"]);
+        let repo = Repo::open(&dir, &[]).unwrap();
+        let new = repo.heads["topic"].clone();
+        assert_ne!(new, old);
+        let own: Vec<String> = repo.locations().branches.into_iter().flat_map(|b| b.own).collect();
+        let own: Vec<&str> = own.iter().map(String::as_str).collect();
+        assert_eq!(repo.carry_tag(&mut notes, "ok", &own).unwrap(), 1);
+        assert!(notes.has(&new, "ok") && !notes.has(&old, "ok"));
+        assert_eq!(repo.carry_tag(&mut notes, "ok", &own).unwrap(), 0);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
