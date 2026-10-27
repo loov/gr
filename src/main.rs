@@ -494,6 +494,10 @@ impl App {
             table = table.vertical_scroll_offset(off);
         }
         let (repo, sel, query, notes) = (&self.repo, self.sel, &self.query, &self.notes);
+        let done: std::collections::HashSet<&str> = self.locs.branches.iter()
+            .filter(|b| { let (d, n) = reviewed(b, notes); n > 0 && d == n })
+            .map(|b| b.name.as_str())
+            .collect();
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
         let out = table.body(|body| {
             body.rows(LIST_H, repo.commits.len(), |mut row| {
@@ -501,7 +505,7 @@ impl App {
                 let c = &repo.commits[i];
                 let hit = query.as_ref().map_or(Hit::No, |q| q.hit(c));
                 row.set_selected(i == sel);
-                row.col(|ui| draw_commit_cell(ui, c, &repo.segs(i), hit != Hit::No, notes.has(c.id(), "ok"), now));
+                row.col(|ui| draw_commit_cell(ui, c, &repo.segs(i), hit != Hit::No, notes.has(c.id(), "ok"), &done, now));
                 if row.response().clicked() {
                     clicked = Some(i);
                 }
@@ -688,6 +692,11 @@ fn location_tree(ui: &mut egui::Ui, salt: &str, list: &[Location], depth: usize,
     }
 }
 
+/// (ok, all) of a branch's own commits.
+fn reviewed(loc: &Location, notes: &Annotations) -> (usize, usize) {
+    (loc.own.iter().filter(|id| notes.has(id, "ok")).count(), loc.own.len())
+}
+
 fn location_row(ui: &mut egui::Ui, name: &str, loc: &Location, cur: &str, notes: &Annotations, go: &mut Option<Location>) {
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW_H), Sense::click());
     let p = ui.painter();
@@ -705,10 +714,13 @@ fn location_row(ui: &mut egui::Ui, name: &str, loc: &Location, cur: &str, notes:
         paint_text(p, right, rect.center().y, g, weak);
         right -= 8.0;
     }
-    if !loc.own.is_empty() && loc.own.iter().all(|id| notes.has(id, "ok")) {
-        let g = galley(p, "✓", font(12.0, true), fg(ui, [0, 0x98, 0]));
+    let (done, n) = reviewed(loc, notes);
+    if done > 0 {
+        // ✓ once every commit is ok, the progress until then
+        let (text, color) = if done == n { ("✓".to_string(), fg(ui, [0, 0x98, 0])) } else { (format!("{done}/{n}"), ui.visuals().weak_text_color()) };
+        let g = galley(p, &text, font(12.0, done == n), color);
         right -= g.size().x;
-        paint_text(p, right, rect.center().y, g, fg(ui, [0, 0x98, 0]));
+        paint_text(p, right, rect.center().y, g, color);
         right -= 8.0;
     }
     let text = ui.visuals().text_color();
@@ -722,7 +734,8 @@ fn location_row(ui: &mut egui::Ui, name: &str, loc: &Location, cur: &str, notes:
 
 /// A commit list row: graph, refs and subject on the first line;
 /// committer and short date on the second.
-fn draw_commit_cell(ui: &mut egui::Ui, c: &gr::Commit, segs: &[Seg], bold: bool, ok: bool, now: i64) {
+/// `done` names the branches whose own commits are all ok; their labels get a ✓.
+fn draw_commit_cell(ui: &mut egui::Ui, c: &gr::Commit, segs: &[Seg], bold: bool, ok: bool, done: &std::collections::HashSet<&str>, now: i64) {
     let rect = ui.max_rect();
     let p = ui.painter();
     let text = ui.visuals().text_color();
@@ -744,7 +757,9 @@ fn draw_commit_cell(ui: &mut egui::Ui, c: &gr::Commit, segs: &[Seg], bold: bool,
         p.hline(node.x..=x, y, Stroke::new(1.0, text));
         for r in &c.refs {
             let (bg, fg) = r.colors();
-            let g = galley(p, &r.name, font(11.0, r.current), rgb(fg));
+            let check = r.kind == RefKind::Head && done.contains(r.name.as_str());
+            let name = if check { format!("{} ✓", r.name) } else { r.name.clone() };
+            let g = galley(p, &name, font(11.0, r.current), rgb(fg));
             let w = g.size().x + 6.0;
             let b = Rect::from_min_size(Pos2::new(x, rect.top() + 2.0), Vec2::new(w, ROW_H - 4.0));
             p.rect_filled(b, 0.0, rgb(bg));
