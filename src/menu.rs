@@ -60,13 +60,21 @@ mod native {
 
     impl Native {
         pub fn new(cc: &eframe::CreationContext) -> Option<Native> {
-            let git: Vec<MenuItem> =
-                super::GIT.iter().enumerate().map(|(i, (label, _))| MenuItem::with_id(i.to_string(), *label, true, None)).collect();
+            let git: Vec<MenuItem> = super::GIT
+                .iter()
+                .enumerate()
+                .map(|(i, (label, _))| MenuItem::with_id(i.to_string(), *label, true, None))
+                .collect();
             let git_menu = Submenu::new("Git", true);
             for item in &git {
                 git_menu.append(item).ok()?;
             }
-            let help = Submenu::with_items("Help", true, &[&MenuItem::with_id("shortcuts", "Keyboard Shortcuts", true, None)]).ok()?;
+            let help = Submenu::with_items(
+                "Help",
+                true,
+                &[&MenuItem::with_id("shortcuts", "Keyboard Shortcuts", true, None)],
+            )
+            .ok()?;
             let menu = Menu::new();
             #[cfg(target_os = "macos")]
             {
@@ -79,7 +87,12 @@ mod native {
                     &[
                         &P::about(None, None),
                         &P::separator(),
-                        &MenuItem::with_id("settings", "Settings…", true, Some(Accelerator::new(Some(Modifiers::SUPER), Code::Comma))),
+                        &MenuItem::with_id(
+                            "settings",
+                            "Settings…",
+                            true,
+                            Some(Accelerator::new(Some(Modifiers::SUPER), Code::Comma)),
+                        ),
                         &P::separator(),
                         &P::services(None),
                         &P::separator(),
@@ -91,7 +104,12 @@ mod native {
                     ],
                 )
                 .ok()?;
-                let window = Submenu::with_items("Window", true, &[&P::minimize(None), &P::fullscreen(None), &P::bring_all_to_front(None)]).ok()?;
+                let window = Submenu::with_items(
+                    "Window",
+                    true,
+                    &[&P::minimize(None), &P::fullscreen(None), &P::bring_all_to_front(None)],
+                )
+                .ok()?;
                 menu.append_items(&[&app, &git_menu, &window, &help]).ok()?;
                 window.set_as_windows_menu_for_nsapp();
                 help.set_as_help_menu_for_nsapp();
@@ -101,7 +119,9 @@ mod native {
             {
                 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
                 menu.append_items(&[&git_menu, &help]).ok()?;
-                let RawWindowHandle::Win32(h) = cc.window_handle().ok()?.as_raw() else { return None };
+                let RawWindowHandle::Win32(h) = cc.window_handle().ok()?.as_raw() else {
+                    return None;
+                };
                 // SAFETY: the handle is eframe's live main window.
                 unsafe { menu.init_for_hwnd(h.hwnd.get()) }.ok()?;
             }

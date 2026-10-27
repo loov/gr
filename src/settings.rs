@@ -1,6 +1,8 @@
 //! The settings window: a searchable list of settings, laid out like cmux's.
 
-use eframe::egui::{self, Panel, Pos2, Rect, RichText, Sense, Stroke, TextEdit, ThemePreference, Vec2};
+use eframe::egui::{
+    self, Panel, Pos2, Rect, RichText, Sense, Stroke, TextEdit, ThemePreference, Vec2,
+};
 use gr::DiffOpts;
 
 use crate::theme::{self, Theme};
@@ -81,7 +83,9 @@ impl Settings {
             light: pick(saved("light_theme"), theme::DEFAULT_LIGHT, false),
             dark: pick(saved("dark_theme"), theme::DEFAULT_DARK, true),
             diff,
-            split: saved("side_by_side").and_then(|v| Split::ALL.into_iter().find(|s| s.name() == v)).unwrap_or(Split::Auto),
+            split: saved("side_by_side")
+                .and_then(|v| Split::ALL.into_iter().find(|s| s.name() == v))
+                .unwrap_or(Split::Auto),
         }
     }
 
@@ -101,26 +105,35 @@ impl Settings {
             return false;
         }
         let before = self.diff.clone();
-        let builder = egui::ViewportBuilder::default().with_title("Settings").with_inner_size([960.0, 720.0]);
-        ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("settings"), builder, |ui, _| {
-            let cmd_w = ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::W));
-            if cmd_w || ui.input(|i| i.viewport().close_requested()) {
-                self.open = false;
-            }
-            Panel::left("settings-nav").resizable(false).exact_size(220.0).show(ui, |ui| {
-                ui.add_space(8.0);
-                ui.add(TextEdit::singleline(&mut self.query).hint_text("Search").desired_width(f32::INFINITY));
-                ui.add_space(8.0);
-                for s in SECTIONS {
-                    if ui.selectable_label(self.jump == Some(s), s).clicked() {
-                        self.jump = Some(s);
-                    }
+        let builder =
+            egui::ViewportBuilder::default().with_title("Settings").with_inner_size([960.0, 720.0]);
+        ctx.show_viewport_immediate(
+            egui::ViewportId::from_hash_of("settings"),
+            builder,
+            |ui, _| {
+                let cmd_w = ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::W));
+                if cmd_w || ui.input(|i| i.viewport().close_requested()) {
+                    self.open = false;
                 }
-            });
-            egui::CentralPanel::default_margins().show(ui, |ui| {
-                egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.page(ui));
-            });
-        });
+                Panel::left("settings-nav").resizable(false).exact_size(220.0).show(ui, |ui| {
+                    ui.add_space(8.0);
+                    ui.add(
+                        TextEdit::singleline(&mut self.query)
+                            .hint_text("Search")
+                            .desired_width(f32::INFINITY),
+                    );
+                    ui.add_space(8.0);
+                    for s in SECTIONS {
+                        if ui.selectable_label(self.jump == Some(s), s).clicked() {
+                            self.jump = Some(s);
+                        }
+                    }
+                });
+                egui::CentralPanel::default_margins().show(ui, |ui| {
+                    egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.page(ui));
+                });
+            },
+        );
         before != self.diff
     }
 
@@ -129,22 +142,25 @@ impl Settings {
         let q = self.query.trim().to_lowercase();
         let hit = |s: &str| s.to_lowercase().contains(&q);
         let mut shown = false;
-        let mut heading = |ui: &mut egui::Ui, name: &'static str, jump: &mut Option<&'static str>| {
-            if !shown {
-                shown = true;
-            } else {
-                ui.add_space(24.0);
-            }
-            let r = ui.heading(name);
-            if *jump == Some(name) {
-                r.scroll_to_me(Some(egui::Align::TOP));
-                *jump = None;
-            }
-        };
+        let mut heading =
+            |ui: &mut egui::Ui, name: &'static str, jump: &mut Option<&'static str>| {
+                if !shown {
+                    shown = true;
+                } else {
+                    ui.add_space(24.0);
+                }
+                let r = ui.heading(name);
+                if *jump == Some(name) {
+                    r.scroll_to_me(Some(egui::Align::TOP));
+                    *jump = None;
+                }
+            };
 
         // Appearance
-        const MODE: (&str, &str) = ("Appearance", "Follow the system, or always use the light or dark theme.");
-        const SIZE: (&str, &str) = ("Text Size", "Scales all text and controls. Cmd+plus and Cmd+minus change it too.");
+        const MODE: (&str, &str) =
+            ("Appearance", "Follow the system, or always use the light or dark theme.");
+        const SIZE: (&str, &str) =
+            ("Text Size", "Scales all text and controls. Cmd+plus and Cmd+minus change it too.");
         let section = hit("Appearance") || hit("themes");
         let themes = self.themes.get_or_insert_with(theme::all);
         let groups: Vec<(bool, &str, &str, &String, Vec<&Theme>)> = [
@@ -155,7 +171,8 @@ impl Settings {
         .map(|(dark, title, desc, current)| {
             // a match on the group shows all of it, otherwise themes match by name
             let all = section || hit(title) || hit(desc);
-            let list = themes.iter().filter(|t| t.is_dark() == dark && (all || hit(&t.name))).collect();
+            let list =
+                themes.iter().filter(|t| t.is_dark() == dark && (all || hit(&t.name))).collect();
             (dark, title, desc, current, list)
         })
         .collect();
@@ -167,7 +184,11 @@ impl Settings {
             if rows[0] {
                 row(ui, MODE, |ui| {
                     let mut pref = ui.ctx().options(|o| o.theme_preference);
-                    for (p, label) in [(ThemePreference::Dark, "Dark"), (ThemePreference::Light, "Light"), (ThemePreference::System, "System")] {
+                    for (p, label) in [
+                        (ThemePreference::Dark, "Dark"),
+                        (ThemePreference::Light, "Light"),
+                        (ThemePreference::System, "System"),
+                    ] {
                         ui.selectable_value(&mut pref, p, label);
                     }
                     ui.ctx().set_theme(pref);
@@ -180,7 +201,10 @@ impl Settings {
                     if ui.button("Reset").clicked() {
                         zoom = 1.0;
                     }
-                    let r = ui.add(egui::Slider::new(&mut zoom, 0.5..=2.0).custom_formatter(|v, _| format!("{:.0}%", v * 100.0)));
+                    let r = ui.add(
+                        egui::Slider::new(&mut zoom, 0.5..=2.0)
+                            .custom_formatter(|v, _| format!("{:.0}%", v * 100.0)),
+                    );
                     if zoom != ui.ctx().zoom_factor() {
                         ui.ctx().set_zoom_factor(zoom);
                     }
@@ -206,17 +230,31 @@ impl Settings {
             t.apply(ui.ctx());
             // show the pick even when the other mode is on
             if t.is_dark() != ui.visuals().dark_mode {
-                ui.ctx().set_theme(if t.is_dark() { ThemePreference::Dark } else { ThemePreference::Light });
+                ui.ctx().set_theme(if t.is_dark() {
+                    ThemePreference::Dark
+                } else {
+                    ThemePreference::Light
+                });
             }
             let slot = if t.is_dark() { &mut self.dark } else { &mut self.light };
             *slot = t.name;
         }
 
         // Diff
-        const CONTEXT: (&str, &str) = ("Lines of Context", "Unchanged lines shown around each change. Also in the bar under the diff.");
-        const SPACE: (&str, &str) = ("Ignore Space Change", "Hide changes that only add or remove whitespace.");
-        const WORDS: (&str, &str) = ("Word Diff", "Mark the words that changed between a removed line and the added line after it.");
-        const SYNTAX: (&str, &str) = ("Syntax Highlighting", "Colour keywords, strings, comments and numbers, by the file's extension.");
+        const CONTEXT: (&str, &str) = (
+            "Lines of Context",
+            "Unchanged lines shown around each change. Also in the bar under the diff.",
+        );
+        const SPACE: (&str, &str) =
+            ("Ignore Space Change", "Hide changes that only add or remove whitespace.");
+        const WORDS: (&str, &str) = (
+            "Word Diff",
+            "Mark the words that changed between a removed line and the added line after it.",
+        );
+        const SYNTAX: (&str, &str) = (
+            "Syntax Highlighting",
+            "Colour keywords, strings, comments and numbers, by the file's extension.",
+        );
         let section = hit("Diff");
         const SPLIT: (&str, &str) = (
             "Side by Side",
@@ -227,7 +265,9 @@ impl Settings {
             heading(ui, "Diff", &mut self.jump);
             ui.add_space(8.0);
             if rows[0] {
-                row(ui, CONTEXT, |ui| Some(ui.add(egui::DragValue::new(&mut self.diff.context).range(0..=1000))));
+                row(ui, CONTEXT, |ui| {
+                    Some(ui.add(egui::DragValue::new(&mut self.diff.context).range(0..=1000)))
+                });
             }
             if rows[1] {
                 row(ui, SPACE, |ui| Some(ui.checkbox(&mut self.diff.ignore_space, "")));
@@ -256,7 +296,11 @@ impl Settings {
 
 /// A titled settings row with its control on the right; the text wraps in
 /// the width the control leaves. A returned control is named by the title.
-fn row(ui: &mut egui::Ui, (title, desc): (&str, &str), control: impl FnOnce(&mut egui::Ui) -> Option<egui::Response>) {
+fn row(
+    ui: &mut egui::Ui,
+    (title, desc): (&str, &str),
+    control: impl FnOnce(&mut egui::Ui) -> Option<egui::Response>,
+) {
     egui::Frame::group(ui.style()).inner_margin(12.0).show(ui, |ui| {
         ui.set_width(ui.available_width());
         // top-aligned: a centred layout grows to the scroll area's height

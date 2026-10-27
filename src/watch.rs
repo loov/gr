@@ -50,12 +50,17 @@ impl Watch {
 
 fn fingerprint(dir: &Path, common: &Path) -> u64 {
     let mut h = DefaultHasher::new();
-    let mut files: Vec<PathBuf> = vec![dir.join("HEAD"), dir.join("index"), common.join("packed-refs")];
+    let mut files: Vec<PathBuf> =
+        vec![dir.join("HEAD"), dir.join("index"), common.join("packed-refs")];
     let mut stack = vec![common.join("refs")];
     while let Some(d) = stack.pop() {
         for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
             let p = e.path();
-            if p.is_dir() { stack.push(p) } else { files.push(p) }
+            if p.is_dir() {
+                stack.push(p)
+            } else {
+                files.push(p)
+            }
         }
     }
     files.sort();

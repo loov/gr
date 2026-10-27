@@ -86,8 +86,14 @@ impl Details {
             old: 0,
             new: 0,
         };
-        let code: Vec<Option<Kind>> =
-            self.lines.iter().map(|l| (!l.merge && matches!(l.kind, Kind::Context | Kind::Add | Kind::Del)).then_some(l.kind)).collect();
+        let code: Vec<Option<Kind>> = self
+            .lines
+            .iter()
+            .map(|l| {
+                (!l.merge && matches!(l.kind, Kind::Context | Kind::Add | Kind::Del))
+                    .then_some(l.kind)
+            })
+            .collect();
         let n = self.lines.len();
         let mut lines: Vec<Option<Line>> = self.lines.into_iter().map(Some).collect();
         // row of each old line, for the file positions
@@ -95,7 +101,8 @@ impl Details {
         let mut out: Vec<Line> = vec![];
         let mut i = 0;
         while i < n {
-            let run = |from: usize, k: Kind| code[from..].iter().take_while(|c| **c == Some(k)).count();
+            let run =
+                |from: usize, k: Kind| code[from..].iter().take_while(|c| **c == Some(k)).count();
             let (dels, adds) = match code[i] {
                 Some(Kind::Del) => (run(i, Kind::Del), run(i + run(i, Kind::Del), Kind::Add)),
                 Some(Kind::Add) => (0, run(i, Kind::Add)),
@@ -111,8 +118,18 @@ impl Details {
                 }
             };
             for k in 0..dels.max(adds) {
-                let mut left = if k < dels { row_of[i + k] = out.len(); lines[i + k].take().expect("each line is taken once") } else { blank() };
-                let right = if k < adds { row_of[i + dels + k] = out.len(); lines[i + dels + k].take().expect("each line is taken once") } else { blank() };
+                let mut left = if k < dels {
+                    row_of[i + k] = out.len();
+                    lines[i + k].take().expect("each line is taken once")
+                } else {
+                    blank()
+                };
+                let right = if k < adds {
+                    row_of[i + dels + k] = out.len();
+                    lines[i + dels + k].take().expect("each line is taken once")
+                } else {
+                    blank()
+                };
                 left.right = Some(Box::new(right));
                 out.push(left);
             }
@@ -131,9 +148,22 @@ impl Details {
 
 const BLACK: Rgb = [0, 0, 0];
 const MERGE_COLORS: [Rgb; 16] = [
-    [255, 0, 0], [0, 0, 255], [0, 255, 0], [160, 32, 240], [165, 42, 42], [0, 0x90, 0x90],
-    [255, 0, 255], [0x80, 0x80, 0], [0, 0x90, 0], [0xff, 0, 0x80], [0, 255, 255], [0xb0, 0x70, 0x70],
-    [0x70, 0xb0, 0xf0], [0x70, 0xf0, 0xb0], [0xf0, 0xb0, 0x70], [0xff, 0x70, 0xb0],
+    [255, 0, 0],
+    [0, 0, 255],
+    [0, 255, 0],
+    [160, 32, 240],
+    [165, 42, 42],
+    [0, 0x90, 0x90],
+    [255, 0, 255],
+    [0x80, 0x80, 0],
+    [0, 0x90, 0],
+    [0xff, 0, 0x80],
+    [0, 255, 255],
+    [0xb0, 0x70, 0x70],
+    [0x70, 0xb0, 0xf0],
+    [0x70, 0xf0, 0xb0],
+    [0xf0, 0xb0, 0x70],
+    [0xff, 0x70, 0xb0],
 ];
 const DARKGREY: Rgb = [0xa9, 0xa9, 0xa9];
 
@@ -154,7 +184,9 @@ fn style_for(kind: Kind, merge: bool, parent: Option<usize>) -> Style {
         Kind::Hunk => Style { fg: [0, 0, 255], bg: None, bold: false },
         Kind::Del if merge => Style { fg: merge_color(parent.unwrap_or(0)), bg: None, bold: false },
         Kind::Del => Style { fg: [0xc3, 0, 0], bg: Some([0xff, 0xf3, 0xf3]), bold: false },
-        Kind::Add if merge => Style { fg: parent.map(merge_color).unwrap_or(BLACK), bg: None, bold: true },
+        Kind::Add if merge => {
+            Style { fg: parent.map(merge_color).unwrap_or(BLACK), bg: None, bold: true }
+        }
         Kind::Add => Style { fg: [0, 0x98, 0], bg: Some([0xf0, 0xff, 0xf0]), bold: false },
     }
 }
@@ -190,7 +222,18 @@ impl Builder {
         self.push_styled(text.into(), kind, style_for(kind, false, None), None);
     }
     fn push_styled(&mut self, text: String, kind: Kind, style: Style, link: Option<usize>) {
-        self.lines.push(Line { text, kind, style, link, merge: false, changed: vec![], syntax: vec![], right: None, old: 0, new: 0 });
+        self.lines.push(Line {
+            text,
+            kind,
+            style,
+            link,
+            merge: false,
+            changed: vec![],
+            syntax: vec![],
+            right: None,
+            old: 0,
+            new: 0,
+        });
     }
     fn link(&mut self, text: String, row: Option<usize>) {
         let kind = if row.is_some() { Kind::Link } else { Kind::Plain };
@@ -236,7 +279,11 @@ fn git_diff_name(rest: &str) -> String {
 
 /// Decodes a C-style quoted path (`"\303\251"` -> "é"); unquoted input is returned as is.
 fn unquote(s: &str) -> String {
-    if s.starts_with('"') { split_quoted(s).0 } else { s.to_string() }
+    if s.starts_with('"') {
+        split_quoted(s).0
+    } else {
+        s.to_string()
+    }
 }
 
 /// Parses a leading quoted string, returning it decoded and the rest of the input.
@@ -309,7 +356,9 @@ fn parse_diff(b: &mut Builder, diff: &str) {
             b.start_file(&git_diff_name(rest));
             in_hdr = true;
             nparents = 1;
-        } else if let Some(rest) = line.strip_prefix("diff --cc ").or_else(|| line.strip_prefix("diff --combined ")) {
+        } else if let Some(rest) =
+            line.strip_prefix("diff --cc ").or_else(|| line.strip_prefix("diff --combined "))
+        {
             b.start_file(&unquote(rest));
             in_hdr = true;
         } else if line.starts_with("@@") {
@@ -323,7 +372,9 @@ fn parse_diff(b: &mut Builder, diff: &str) {
             (old, new) = (start('-'), start('+'));
             b.push(line, Kind::Hunk);
         } else if in_hdr {
-            if let Some(n) = line.strip_prefix("rename to ").or_else(|| line.strip_prefix("copy to ")) {
+            if let Some(n) =
+                line.strip_prefix("rename to ").or_else(|| line.strip_prefix("copy to "))
+            {
                 b.rename_file(&unquote(n));
             }
             if line.starts_with("--- ") {
@@ -342,7 +393,9 @@ fn parse_diff(b: &mut Builder, diff: &str) {
             let prefix: String = line.chars().take(nparents).collect();
             let text = expand_tabs(line, nparents);
             let merge = nparents > 1;
-            if prefix.len() == nparents && prefix.chars().all(|c| matches!(c, ' ' | '+' | '-')) || line.is_empty() {
+            if prefix.len() == nparents && prefix.chars().all(|c| matches!(c, ' ' | '+' | '-'))
+                || line.is_empty()
+            {
                 let (kind, parent) = if let Some(k) = prefix.find('-') {
                     (Kind::Del, Some(k))
                 } else if prefix.contains('+') {
@@ -426,7 +479,12 @@ impl Repo {
     fn header(&self, b: &mut Builder, c: &Commit) {
         b.push(format!("Author: {}  {}", c.author(), c.author_date()), Kind::Plain);
         b.push(format!("Committer: {}  {}", c.committer(), c.committer_date()), Kind::Plain);
-        let tags: Vec<&str> = c.refs.iter().filter(|r| r.kind == crate::RefKind::Tag).map(|r| r.name.as_str()).collect();
+        let tags: Vec<&str> = c
+            .refs
+            .iter()
+            .filter(|r| r.kind == crate::RefKind::Tag)
+            .map(|r| r.name.as_str())
+            .collect();
         if !tags.is_empty() {
             b.push(format!("Tags: {}", tags.join(" ")), Kind::Plain);
         }
@@ -439,7 +497,12 @@ impl Repo {
             let kc = &self.commits[k];
             b.link(format!("Child:  {} ({})", kc.id(), kc.subject()), Some(k));
         }
-        let near = self.near.borrow_mut().entry(c.id().to_string()).or_insert_with(|| self.near_refs(c.id())).clone();
+        let near = self
+            .near
+            .borrow_mut()
+            .entry(c.id().to_string())
+            .or_insert_with(|| self.near_refs(c.id()))
+            .clone();
         for (label, names) in near {
             b.push(format!("{label}: {names}"), Kind::Plain);
         }
@@ -452,8 +515,15 @@ impl Repo {
         for l in c.body().lines() {
             let row = l
                 .split(|ch: char| !ch.is_ascii_alphanumeric())
-                .filter(|w| (6..=40).contains(&w.len()) && w.chars().all(|ch| ch.is_ascii_hexdigit()))
-                .take_while(|_| budget > 0 && { budget -= 1; true })
+                .filter(|w| {
+                    (6..=40).contains(&w.len()) && w.chars().all(|ch| ch.is_ascii_hexdigit())
+                })
+                .take_while(|_| {
+                    budget > 0 && {
+                        budget -= 1;
+                        true
+                    }
+                })
                 .find_map(|w| self.resolve(w).ok());
             b.link(format!("    {}", expand_tabs(l, 0)), row);
         }
@@ -467,11 +537,19 @@ impl Repo {
         let fmt = "--format=%(refname)";
         let branches = match self.reach().and_then(|r| r.branches_containing(id)) {
             Some(names) => Some(list(&names)),
-            None => git(&self.cwd, &["for-each-ref", fmt, "--contains", id, "refs/heads", "refs/remotes"]).ok().map(|b| {
+            None => git(
+                &self.cwd,
+                &["for-each-ref", fmt, "--contains", id, "refs/heads", "refs/remotes"],
+            )
+            .ok()
+            .map(|b| {
                 let names: Vec<&str> = b
                     .lines()
                     .filter(|l| !l.ends_with("/HEAD"))
-                    .map(|l| l.strip_prefix("refs/heads/").unwrap_or_else(|| l.trim_start_matches("refs/")))
+                    .map(|l| {
+                        l.strip_prefix("refs/heads/")
+                            .unwrap_or_else(|| l.trim_start_matches("refs/"))
+                    })
                     .collect();
                 list(&names)
             }),
@@ -485,13 +563,26 @@ impl Repo {
         let cwd = &self.cwd;
         let reach = self.reach();
         let precedes = reach.and_then(|r| r.precedes(id)).map(String::from);
-        let follows: Option<Vec<String>> =
-            reach.and_then(|r| Some(r.parents_of(id)?.into_iter().filter_map(|p| r.describe(p)).map(String::from).collect()));
+        let follows: Option<Vec<String>> = reach.and_then(|r| {
+            Some(
+                r.parents_of(id)?
+                    .into_iter()
+                    .filter_map(|p| r.describe(p))
+                    .map(String::from)
+                    .collect(),
+            )
+        });
         let (tags, precedes) = std::thread::scope(|s| {
             let precedes = s.spawn(|| {
                 precedes.unwrap_or_else(|| {
-                    let p = git(cwd, &["name-rev", "--tags", "--name-only", "--no-undefined", id]).unwrap_or_default();
-                    p.trim().split(['~', '^']).next().unwrap_or("").trim_start_matches("tags/").to_string()
+                    let p = git(cwd, &["name-rev", "--tags", "--name-only", "--no-undefined", id])
+                        .unwrap_or_default();
+                    p.trim()
+                        .split(['~', '^'])
+                        .next()
+                        .unwrap_or("")
+                        .trim_start_matches("tags/")
+                        .to_string()
                 })
             });
             let tags = follows.unwrap_or_else(|| {
@@ -503,7 +594,10 @@ impl Repo {
                         s.spawn(move || git(cwd, &["describe", "--tags", "--abbrev=0", &p]))
                     })
                     .collect();
-                tags.into_iter().filter_map(|t| t.join().ok()?.ok()).map(|t| t.trim().to_string()).collect()
+                tags.into_iter()
+                    .filter_map(|t| t.join().ok()?.ok())
+                    .map(|t| t.trim().to_string())
+                    .collect()
             });
             (tags, precedes.join().unwrap_or_default())
         });
@@ -532,22 +626,37 @@ mod tests {
     fn split_pairs_lines() {
         let mut b = Builder { lines: vec![], files: vec![("Comments".into(), 0)] };
         b.start_file("f");
-        for (t, k) in [("@@", Kind::Hunk), (" a", Kind::Context), ("-b", Kind::Del), ("-c", Kind::Del), ("+B", Kind::Add), (" d", Kind::Context), ("+e", Kind::Add)] {
+        for (t, k) in [
+            ("@@", Kind::Hunk),
+            (" a", Kind::Context),
+            ("-b", Kind::Del),
+            ("-c", Kind::Del),
+            ("+B", Kind::Add),
+            (" d", Kind::Context),
+            ("+e", Kind::Add),
+        ] {
             b.push(t, k);
         }
         let d = Details { lines: b.lines, files: b.files }.split();
-        let rows: Vec<(String, Option<String>)> = d.lines.iter().map(|l| (l.text.clone(), l.right.as_ref().map(|r| r.text.clone()))).collect();
+        let rows: Vec<(String, Option<String>)> = d
+            .lines
+            .iter()
+            .map(|l| (l.text.clone(), l.right.as_ref().map(|r| r.text.clone())))
+            .collect();
         let s = |a: &str, b: Option<&str>| (a.to_string(), b.map(String::from));
-        assert_eq!(rows, [
-            s("", None),
-            s(&Builder::file_sep("f"), None),
-            s("@@", None),
-            s(" a", Some(" a")),
-            s("-b", Some("+B")),
-            s("-c", Some("")),
-            s(" d", Some(" d")),
-            s("", Some("+e")),
-        ]);
+        assert_eq!(
+            rows,
+            [
+                s("", None),
+                s(&Builder::file_sep("f"), None),
+                s("@@", None),
+                s(" a", Some(" a")),
+                s("-b", Some("+B")),
+                s("-c", Some("")),
+                s(" d", Some(" d")),
+                s("", Some("+e")),
+            ]
+        );
         assert_eq!(d.files, [("Comments".to_string(), 0), ("f".to_string(), 1)]);
     }
 
@@ -631,7 +740,16 @@ mod tests {
                 .current_dir(&dir)
                 .env("GIT_CONFIG_GLOBAL", "/dev/null")
                 .env("GIT_CONFIG_NOSYSTEM", "1")
-                .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "tag.gpgSign=false", "-c", "commit.gpgSign=false"])
+                .args([
+                    "-c",
+                    "user.name=t",
+                    "-c",
+                    "user.email=t@t",
+                    "-c",
+                    "tag.gpgSign=false",
+                    "-c",
+                    "commit.gpgSign=false",
+                ])
                 .args(args)
                 .status()
                 .unwrap()

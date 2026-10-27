@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 pub use annotations::Annotations;
-pub use details::{DiffOpts, Details, Kind, Line, Style};
+pub use details::{Details, DiffOpts, Kind, Line, Style};
 pub use find::{Dir, Field, Hit, Mode, Query, Wrap};
 pub use graph::Seg;
 pub use locations::{Location, Locations};
@@ -93,7 +93,15 @@ pub struct Commit {
 
 impl Commit {
     /// `author` and `committer` are "Name <email>".
-    pub(crate) fn new(id: &str, parents: &str, author: &str, author_time: i64, committer: &str, committer_time: i64, body: &str) -> Commit {
+    pub(crate) fn new(
+        id: &str,
+        parents: &str,
+        author: &str,
+        author_time: i64,
+        committer: &str,
+        committer_time: i64,
+        body: &str,
+    ) -> Commit {
         let fields = [id, parents, author, committer, body];
         let mut ends = [0; 4];
         let mut end = 0;
@@ -138,13 +146,21 @@ impl Commit {
     }
     /// "YYYY-MM-DD HH:MM:SS" in local time; empty for the fake commits.
     pub fn author_date(&self) -> String {
-        if self.is_fake() { String::new() } else { local_time(self.author_time) }
+        if self.is_fake() {
+            String::new()
+        } else {
+            local_time(self.author_time)
+        }
     }
     pub fn committer(&self) -> &str {
         self.field(3)
     }
     pub fn committer_date(&self) -> String {
-        if self.is_fake() { String::new() } else { local_time(self.committer_time) }
+        if self.is_fake() {
+            String::new()
+        } else {
+            local_time(self.committer_time)
+        }
     }
     pub fn committer_name(&self) -> &str {
         let c = self.committer();
@@ -206,7 +222,8 @@ pub(crate) fn git(dir: &PathBuf, args: &[&str]) -> io::Result<String> {
         return Err(io::Error::other(msg));
     }
     // no copy when the output is valid UTF-8, which it nearly always is
-    Ok(String::from_utf8(out.stdout).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned()))
+    Ok(String::from_utf8(out.stdout)
+        .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned()))
 }
 
 /// Streams `git log -z` output, parsing records as they arrive.
@@ -263,7 +280,8 @@ fn local_time(t: i64) -> String {
 }
 
 fn short_time(t: &str, now: &str) -> String {
-    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const MONTHS: [&str; 12] =
+        ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     if t.len() < 16 || now.len() < 10 {
         return t.to_string();
     }
@@ -312,7 +330,8 @@ impl Repo {
             Some(i) => (&log_args[..i], log_args[i + 1..].to_vec()),
             None => (log_args, vec![]),
         };
-        let revs: Vec<&str> = revs.iter().map(String::as_str).filter(|a| !breaks_parsing(a)).collect();
+        let revs: Vec<&str> =
+            revs.iter().map(String::as_str).filter(|a| !breaks_parsing(a)).collect();
         let default_revs = revs.iter().all(|a| a.starts_with('-'));
         if default_revs {
             args.push("--all");
@@ -342,10 +361,20 @@ impl Repo {
         if commits.iter().any(|c| c.id() == view_head) {
             if unstaged {
                 let parent = if staged { INDEX_ID } else { &view_head };
-                fake.push(fake_commit(UNCOMMITTED_ID, parent, "Local uncommitted changes, not checked in to index", [255, 0, 0]));
+                fake.push(fake_commit(
+                    UNCOMMITTED_ID,
+                    parent,
+                    "Local uncommitted changes, not checked in to index",
+                    [255, 0, 0],
+                ));
             }
             if staged {
-                fake.push(fake_commit(INDEX_ID, &view_head, "Local changes checked in to index but not committed", [0, 255, 0]));
+                fake.push(fake_commit(
+                    INDEX_ID,
+                    &view_head,
+                    "Local changes checked in to index but not committed",
+                    [0, 255, 0],
+                ));
             }
         }
         if !commits.iter().any(|c| c.id() == head) {
@@ -368,10 +397,21 @@ impl Repo {
             heads: HashMap::new(),
             commits,
         };
-        repo.by_id = repo.commits.iter().enumerate().map(|(i, c)| (id_key(c.id()).unwrap_or(0), i as u32)).collect();
+        repo.by_id = repo
+            .commits
+            .iter()
+            .enumerate()
+            .map(|(i, c)| (id_key(c.id()).unwrap_or(0), i as u32))
+            .collect();
         repo.by_id.sort_unstable();
         let edges: Vec<(usize, usize)> = (0..repo.commits.len())
-            .flat_map(|i| repo.commits[i].parents().filter_map(|p| repo.index_of(p)).map(move |pi| (pi, i)).collect::<Vec<_>>())
+            .flat_map(|i| {
+                repo.commits[i]
+                    .parents()
+                    .filter_map(|p| repo.index_of(p))
+                    .map(move |pi| (pi, i))
+                    .collect::<Vec<_>>()
+            })
             .collect();
         for (pi, i) in edges {
             repo.commits[pi].children.push(i);
@@ -393,7 +433,11 @@ impl Repo {
 
     /// The whole commit graph, waiting for its loader thread on first use.
     pub(crate) fn reach(&self) -> Option<&reach::Reach> {
-        self.reach.get_or_init(|| self.reach_job.borrow_mut().take().and_then(|h| h.join().ok()).flatten()).as_ref()
+        self.reach
+            .get_or_init(|| {
+                self.reach_job.borrow_mut().take().and_then(|h| h.join().ok()).flatten()
+            })
+            .as_ref()
     }
 
     /// Graph line segments of `row`, in lane units (x) and row units (y, 0..1).
@@ -415,7 +459,10 @@ impl Repo {
     }
 
     /// Like `reopen`, with other `git log` arguments.
-    pub fn reopen_with(&self, log_args: Vec<String>) -> impl FnOnce() -> io::Result<Repo> + Send + 'static {
+    pub fn reopen_with(
+        &self,
+        log_args: Vec<String>,
+    ) -> impl FnOnce() -> io::Result<Repo> + Send + 'static {
         let cwd = self.cwd.clone();
         move || Repo::open(&cwd, &log_args)
     }
@@ -437,8 +484,12 @@ impl Repo {
     pub fn origin(&self, row: usize, file: &str, line: &Line) -> Result<usize, String> {
         let c = &self.commits[row];
         let (rev, n) = match (line.kind, c.id()) {
-            (_, _) if line.old == 0 && line.new == 0 => return Err("no line numbers in this diff".into()),
-            (Kind::Add, UNCOMMITTED_ID | INDEX_ID) => return Err("the line is not committed yet".into()),
+            (_, _) if line.old == 0 && line.new == 0 => {
+                return Err("no line numbers in this diff".into())
+            }
+            (Kind::Add, UNCOMMITTED_ID | INDEX_ID) => {
+                return Err("the line is not committed yet".into())
+            }
             // the old side of the work tree and index diffs, near enough
             (_, UNCOMMITTED_ID | INDEX_ID) => ("HEAD".to_string(), line.old),
             (Kind::Del, id) => (format!("{id}^"), line.old),
@@ -446,9 +497,11 @@ impl Repo {
         };
         let range = format!("{n},{n}");
         // blame takes a plain path, not :(top), so run it from the top
-        let out = git(&self.dir, &["blame", "--porcelain", "-L", &range, &rev, "--", file]).map_err(|e| e.to_string())?;
+        let out = git(&self.dir, &["blame", "--porcelain", "-L", &range, &rev, "--", file])
+            .map_err(|e| e.to_string())?;
         let id = out.split(' ').next().unwrap_or("");
-        self.index_of(id).ok_or_else(|| format!("{} is not in this view", id.get(..12).unwrap_or(id)))
+        self.index_of(id)
+            .ok_or_else(|| format!("{} is not in this view", id.get(..12).unwrap_or(id)))
     }
 
     /// The row in `repo`, a reloaded copy of this one, to select in place of
@@ -459,7 +512,11 @@ impl Repo {
         let old = self.commits.get(sel);
         let row = old
             .and_then(|c| repo.index_of(c.id()))
-            .or_else(|| old.and_then(|c| repo.commits.iter().position(|n| !n.is_fake() && n.subject() == c.subject())))
+            .or_else(|| {
+                old.and_then(|c| {
+                    repo.commits.iter().position(|n| !n.is_fake() && n.subject() == c.subject())
+                })
+            })
             .or_else(|| {
                 let (branch, depth) = self.branch_pos(sel)?;
                 let mut row = repo.index_of(repo.heads.get(&branch)?)?;
@@ -482,7 +539,8 @@ impl Repo {
     /// below the tip it is. The checked out branch goes first, then local
     /// ones, so the answer names the branch being worked on.
     fn branch_pos(&self, row: usize) -> Option<(String, usize)> {
-        let cur = self.commits.iter().flat_map(|c| &c.refs).find(|r| r.current).map(|r| r.name.as_str());
+        let cur =
+            self.commits.iter().flat_map(|c| &c.refs).find(|r| r.current).map(|r| r.name.as_str());
         let mut names: Vec<&String> = self.heads.keys().collect();
         names.sort_by_key(|n| (Some(n.as_str()) != cur, n.starts_with("remotes/"), n.as_str()));
         names.into_iter().find_map(|n| {
@@ -504,18 +562,31 @@ impl Repo {
             let Some(name) = r.strip_prefix("refs/") else { continue };
             if let Some(b) = name.strip_prefix("heads/") {
                 self.heads.insert(b.to_string(), id.to_string());
-                others.push((id, Ref { name: b.to_string(), kind: RefKind::Head, current: Some(b) == head_branch }));
+                others.push((
+                    id,
+                    Ref {
+                        name: b.to_string(),
+                        kind: RefKind::Head,
+                        current: Some(b) == head_branch,
+                    },
+                ));
             } else if name.starts_with("remotes/") {
                 if !name.ends_with("/HEAD") {
                     self.heads.insert(name.to_string(), id.to_string());
-                    others.push((id, Ref { name: name.to_string(), kind: RefKind::Remote, current: false }));
+                    others.push((
+                        id,
+                        Ref { name: name.to_string(), kind: RefKind::Remote, current: false },
+                    ));
                 }
             } else if let Some(t) = name.strip_prefix("tags/") {
                 // refs/tags/x^{} (the peeled commit) overrides the tag object id
                 let t = t.strip_suffix("^{}").unwrap_or(t);
                 self.tags.insert(t.to_string(), id.to_string());
             } else {
-                others.push((id, Ref { name: name.to_string(), kind: RefKind::Other, current: false }));
+                others.push((
+                    id,
+                    Ref { name: name.to_string(), kind: RefKind::Other, current: false },
+                ));
             }
         }
         for (t, id) in &self.tags {
@@ -553,7 +624,11 @@ impl Repo {
     pub fn locations(&self) -> Locations {
         let mut l = Locations::read(&self.cwd);
         let mut on_base = vec![false; self.commits.len()];
-        self.walk(self.base_branches().iter().filter_map(|b| self.heads.get(b)), &mut on_base, |_| {});
+        self.walk(
+            self.base_branches().iter().filter_map(|b| self.heads.get(b)),
+            &mut on_base,
+            |_| {},
+        );
         for b in &mut l.branches {
             let mut seen = on_base.clone();
             self.walk([&b.id], &mut seen, |c| b.own.push(c.id().to_string()));
@@ -574,7 +649,8 @@ impl Repo {
                 .spawn()?;
             let mut stdin = log.stdin.take().expect("stdin is piped");
             let list = ids.join("\n") + "\n";
-            let writer = std::thread::spawn(move || std::io::Write::write_all(&mut stdin, list.as_bytes()));
+            let writer =
+                std::thread::spawn(move || std::io::Write::write_all(&mut stdin, list.as_bytes()));
             let out = Command::new("git")
                 .current_dir(&self.cwd)
                 .args(["patch-id", "--stable"])
@@ -585,13 +661,21 @@ impl Repo {
             Ok(String::from_utf8_lossy(&out.stdout).into_owned())
         };
         let out = if ids.is_empty() { String::new() } else { run().unwrap_or_default() };
-        out.lines().filter_map(|l| l.split_once(' ')).map(|(p, id)| (id.to_string(), p.to_string())).collect()
+        out.lines()
+            .filter_map(|l| l.split_once(' '))
+            .map(|(p, id)| (id.to_string(), p.to_string()))
+            .collect()
     }
 
     /// Moves `tag` from commits that left the view (rebased, amended) to
     /// `candidates` with the same patch id. Returns how many moved.
     // ponytail: unmatched old marks make every reload patch-id the candidates; prune them if that gets slow
-    pub fn carry_tag(&self, notes: &mut Annotations, tag: &str, candidates: &[&str]) -> io::Result<usize> {
+    pub fn carry_tag(
+        &self,
+        notes: &mut Annotations,
+        tag: &str,
+        candidates: &[&str],
+    ) -> io::Result<usize> {
         // marks from before patch ids were stored
         let bare: Vec<String> = notes
             .with_tag(tag)
@@ -626,9 +710,10 @@ impl Repo {
     /// The default branch, locally and on origin: origin/HEAD's target,
     /// else main or master.
     fn base_branches(&self) -> Vec<String> {
-        let default = git(&self.cwd, &["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"])
-            .ok()
-            .and_then(|r| r.trim().strip_prefix("origin/").map(String::from));
+        let default =
+            git(&self.cwd, &["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"])
+                .ok()
+                .and_then(|r| r.trim().strip_prefix("origin/").map(String::from));
         let names = match default {
             Some(d) => vec![d],
             None => vec!["main".to_string(), "master".to_string()],
@@ -637,7 +722,12 @@ impl Repo {
     }
 
     /// Calls `f` on every commit reachable from `tips` and not yet `seen`, marking it seen.
-    fn walk<'a>(&self, tips: impl IntoIterator<Item = &'a String>, seen: &mut [bool], mut f: impl FnMut(&Commit)) {
+    fn walk<'a>(
+        &self,
+        tips: impl IntoIterator<Item = &'a String>,
+        seen: &mut [bool],
+        mut f: impl FnMut(&Commit),
+    ) {
         let mut stack: Vec<usize> = tips.into_iter().filter_map(|id| self.index_of(id)).collect();
         while let Some(i) = stack.pop() {
             if std::mem::replace(&mut seen[i], true) {
@@ -651,7 +741,8 @@ impl Repo {
 
     /// Window title, "<repo>: All files - gitk".
     pub fn title(&self) -> String {
-        let name = self.dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let name =
+            self.dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         format!("{name}: All files - gitk")
     }
 
@@ -690,8 +781,7 @@ impl Repo {
                 Err(_) => return Err(format!("Revision {s} is not known")),
             }
         };
-        self.index_of(&id)
-            .ok_or_else(|| format!("Revision {s} is not in the current view"))
+        self.index_of(&id).ok_or_else(|| format!("Revision {s} is not in the current view"))
     }
 }
 
@@ -699,16 +789,58 @@ impl Repo {
 /// or add diff output to the records.
 fn breaks_parsing(arg: &str) -> bool {
     const EXACT: &[&str] = &[
-        "--oneline", "--reverse", "-z", "--graph", "--name-only", "--name-status", "-p", "-u",
-        "--patch", "--raw", "--numstat", "--shortstat", "--summary", "--decorate", "--abbrev-commit",
-        "-g", "--walk-reflogs", "--no-walk", "--parents", "--children", "--boundary", "--header",
-        "--log-size", "--patch-with-stat", "--patch-with-raw", "-c", "--cc", "-m",
-        "--combined-all-paths", "--remerge-diff", "--compact-summary", "--binary", "--check",
-        "-W", "--function-context", "--show-signature", "--left-right", "--relative-date",
+        "--oneline",
+        "--reverse",
+        "-z",
+        "--graph",
+        "--name-only",
+        "--name-status",
+        "-p",
+        "-u",
+        "--patch",
+        "--raw",
+        "--numstat",
+        "--shortstat",
+        "--summary",
+        "--decorate",
+        "--abbrev-commit",
+        "-g",
+        "--walk-reflogs",
+        "--no-walk",
+        "--parents",
+        "--children",
+        "--boundary",
+        "--header",
+        "--log-size",
+        "--patch-with-stat",
+        "--patch-with-raw",
+        "-c",
+        "--cc",
+        "-m",
+        "--combined-all-paths",
+        "--remerge-diff",
+        "--compact-summary",
+        "--binary",
+        "--check",
+        "-W",
+        "--function-context",
+        "--show-signature",
+        "--left-right",
+        "--relative-date",
     ];
     const PREFIX: &[&str] = &[
-        "--pretty", "--format", "--date=", "--color", "--stat", "--decorate=", "-U", "--unified",
-        "--dirstat", "--word-diff", "--diff-merges", "--encoding",
+        "--pretty",
+        "--format",
+        "--date=",
+        "--color",
+        "--stat",
+        "--decorate=",
+        "-U",
+        "--unified",
+        "--dirstat",
+        "--word-diff",
+        "--diff-merges",
+        "--encoding",
     ];
     EXACT.contains(&arg) || PREFIX.iter().any(|p| arg.starts_with(p))
 }
@@ -730,7 +862,15 @@ fn parse_record(r: &str) -> Option<Commit> {
     }
     let author = format!("{} <{}>", f[2], f[3]);
     let committer = format!("{} <{}>", f[5], f[6]);
-    Some(Commit::new(f[0], f[1], &author, f[4].parse().ok()?, &committer, f[7].parse().ok()?, f[8].trim_end()))
+    Some(Commit::new(
+        f[0],
+        f[1],
+        &author,
+        f[4].parse().ok()?,
+        &committer,
+        f[7].parse().ok()?,
+        f[8].trim_end(),
+    ))
 }
 
 /// Sort key for `index_of`: the id's first 16 hex digits.
@@ -763,11 +903,19 @@ impl Side {
             a.extend(paths.iter().map(String::as_str));
             git(cwd, &a).unwrap_or_default().trim().to_string()
         };
-        let worktree = git(cwd, &["rev-parse", "--is-inside-work-tree"]).is_ok_and(|s| s.trim() == "true");
+        let worktree =
+            git(cwd, &["rev-parse", "--is-inside-work-tree"]).is_ok_and(|s| s.trim() == "true");
         // checked whether or not view_head is listed; open decides
         let (mut staged, mut unstaged) = (false, false);
         if worktree {
-            let mut a = vec!["diff-index", "--cached", "--quiet", "--ignore-submodules=dirty", "HEAD", "--"];
+            let mut a = vec![
+                "diff-index",
+                "--cached",
+                "--quiet",
+                "--ignore-submodules=dirty",
+                "HEAD",
+                "--",
+            ];
             a.extend(paths.iter().map(String::as_str));
             staged = git_differs(cwd, &a);
             let mut a = vec!["diff-files", "--quiet", "--"];
@@ -867,13 +1015,25 @@ mod tests {
 
     #[test]
     fn diff_args_dropped() {
-        for a in ["-U1", "--unified=5", "-p", "--stat=80", "--name-only", "--cc", "-m", "--word-diff=color", "--raw"] {
+        for a in [
+            "-U1",
+            "--unified=5",
+            "-p",
+            "--stat=80",
+            "--name-only",
+            "--cc",
+            "-m",
+            "--word-diff=color",
+            "--raw",
+        ] {
             assert!(breaks_parsing(a), "{a}");
         }
         assert!(!breaks_parsing("--all") && !breaks_parsing("--grep=x"));
         assert!(parse_record("diff --git a/x b/x\x1f\x1f\x1f\x1f\x1f\x1f\x1f\x1f").is_none());
         let id = "a".repeat(40);
-        assert!(parse_record(&format!("{id}\x1f{id}\x1fn\x1fe\x1f0\x1fn\x1fe\x1f0\x1fmsg")).is_some());
+        assert!(
+            parse_record(&format!("{id}\x1f{id}\x1fn\x1fe\x1f0\x1fn\x1fe\x1f0\x1fmsg")).is_some()
+        );
         let dir = env!("CARGO_MANIFEST_DIR");
         let n = Repo::open(dir, &[]).unwrap().commits.len();
         let r = Repo::open(dir, &["-U1".into(), "--stat".into()]).unwrap();
@@ -886,7 +1046,9 @@ mod tests {
         // run from core/, so "src" means core/src
         let dir = env!("CARGO_MANIFEST_DIR");
         let r = Repo::open(dir, &["--".into(), "src".into()]).unwrap();
-        let want = git(&PathBuf::from(dir), &["log", "--topo-order", "--all", "--format=%H", "--", "src"]).unwrap();
+        let want =
+            git(&PathBuf::from(dir), &["log", "--topo-order", "--all", "--format=%H", "--", "src"])
+                .unwrap();
         let got: Vec<&str> = r.commits.iter().filter(|c| !c.is_fake()).map(|c| c.id()).collect();
         assert_eq!(got, want.lines().collect::<Vec<_>>());
         let sel = r.commits.len() - 1;
@@ -898,12 +1060,17 @@ mod tests {
     #[test]
     fn branch_own_commits() {
         let repo = Repo::open(env!("CARGO_MANIFEST_DIR"), &[]).unwrap();
-        let base: Vec<String> = repo.base_branches().into_iter().map(|b| b.replace("remotes/", ""))
-            .filter(|b| git(&repo.dir, &["rev-parse", "-q", "--verify", b]).is_ok()).collect();
+        let base: Vec<String> = repo
+            .base_branches()
+            .into_iter()
+            .map(|b| b.replace("remotes/", ""))
+            .filter(|b| git(&repo.dir, &["rev-parse", "-q", "--verify", b]).is_ok())
+            .collect();
         for b in repo.locations().branches {
             let mut args = vec!["rev-list", b.name.as_str(), "--not"];
             args.extend(base.iter().map(String::as_str));
-            let mut want: Vec<String> = git(&repo.dir, &args).unwrap().lines().map(String::from).collect();
+            let mut want: Vec<String> =
+                git(&repo.dir, &args).unwrap().lines().map(String::from).collect();
             let mut got = b.own.clone();
             want.sort();
             got.sort();
@@ -1053,7 +1220,9 @@ mod tests {
         assert_eq!(d.files[0].0, "Comments");
         let short = &repo.commits[last].id()[..8];
         assert_eq!(repo.resolve(short), Ok(last));
-        assert_eq!(repo.resolve("HEAD").map(|i| repo.commits[i].id().to_string()).ok(),
-                   git(&repo.dir, &["rev-parse", "HEAD"]).ok().map(|s| s.trim().to_string()));
+        assert_eq!(
+            repo.resolve("HEAD").map(|i| repo.commits[i].id().to_string()).ok(),
+            git(&repo.dir, &["rev-parse", "HEAD"]).ok().map(|s| s.trim().to_string())
+        );
     }
 }

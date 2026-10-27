@@ -81,12 +81,15 @@ impl Reach {
                 ids.split(' ').filter_map(id_key).collect()
             })
             .collect();
-        let mut keys: Vec<(u64, u32)> = lines.iter().enumerate().filter_map(|(i, l)| Some((*l.first()?, i as u32))).collect();
+        let mut keys: Vec<(u64, u32)> =
+            lines.iter().enumerate().filter_map(|(i, l)| Some((*l.first()?, i as u32))).collect();
         keys.sort_unstable();
-        let git_path = |p: &str| git(cwd, &["rev-parse", "--git-path", p]).map(|s| cwd.join(s.trim()));
-        let has_commit_graph = ["objects/info/commit-graph", "objects/info/commit-graphs/commit-graph-chain"]
-            .iter()
-            .any(|p| git_path(p).is_ok_and(|p| Path::new(&p).exists()));
+        let git_path =
+            |p: &str| git(cwd, &["rev-parse", "--git-path", p]).map(|s| cwd.join(s.trim()));
+        let has_commit_graph =
+            ["objects/info/commit-graph", "objects/info/commit-graphs/commit-graph-chain"]
+                .iter()
+                .any(|p| git_path(p).is_ok_and(|p| Path::new(&p).exists()));
         let mut r = Reach {
             keys,
             start: vec![],
@@ -151,7 +154,9 @@ impl Reach {
             if name.ends_with("/HEAD") {
                 continue;
             }
-            let short = name.strip_prefix("refs/heads/").unwrap_or_else(|| name.trim_start_matches("refs/"));
+            let short = name
+                .strip_prefix("refs/heads/")
+                .unwrap_or_else(|| name.trim_start_matches("refs/"));
             if let Some(i) = id_key(id).and_then(|k| r.index(k)) {
                 r.tips.push((i, short.to_string()));
             }
@@ -208,7 +213,9 @@ impl Reach {
         while let Some(i) = todo.pop() {
             let i = i as usize;
             for &c in &self.children[self.start[i] as usize..self.start[i + 1] as usize] {
-                if self.dates[c as usize] >= cutoff && !std::mem::replace(&mut desc[c as usize], true) {
+                if self.dates[c as usize] >= cutoff
+                    && !std::mem::replace(&mut desc[c as usize], true)
+                {
                     todo.push(c);
                 }
             }
@@ -224,7 +231,9 @@ impl Reach {
         };
         for (t, &(tip, _, _)) in self.tags.iter().enumerate() {
             let tip = tip as usize;
-            if !desc[tip] || !update(&mut names, tip, Name { tag: t as u32, generation: 0, distance: 0 }) {
+            if !desc[tip]
+                || !update(&mut names, tip, Name { tag: t as u32, generation: 0, distance: 0 })
+            {
                 continue;
             }
             let mut stack = vec![tip];
@@ -232,13 +241,19 @@ impl Reach {
             while let Some(c) = stack.pop() {
                 let name = names[c].expect("named before it is stacked");
                 queue.clear();
-                for (k, &p) in self.parents[self.pstart[c] as usize..self.pstart[c + 1] as usize].iter().enumerate() {
+                for (k, &p) in self.parents[self.pstart[c] as usize..self.pstart[c + 1] as usize]
+                    .iter()
+                    .enumerate()
+                {
                     let p = p as usize;
                     if !desc[p] {
                         continue;
                     }
-                    let (generation, distance) =
-                        if k > 0 { (0, name.distance + MERGE_WEIGHT) } else { (name.generation + 1, name.distance + 1) };
+                    let (generation, distance) = if k > 0 {
+                        (0, name.distance + MERGE_WEIGHT)
+                    } else {
+                        (name.generation + 1, name.distance + 1)
+                    };
                     if update(&mut names, p, Name { tag: name.tag, generation, distance }) {
                         queue.push(p);
                     }
@@ -304,7 +319,8 @@ impl Reach {
                 }
             }
             if annotated > 0 && queue.is_empty() {
-                let best = found.iter().map(|t| t.depth).min().expect("annotated tags are in found");
+                let best =
+                    found.iter().map(|t| t.depth).min().expect("annotated tags are in found");
                 let within = found.iter().filter(|t| t.depth == best).fold(0, |w, t| w | t.flag);
                 if flags[c] & within == within {
                     break;

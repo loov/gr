@@ -40,7 +40,9 @@ impl Theme {
                 "selection-background" => selection = hex(v),
                 "palette" => {
                     if let Some((i, c)) = v.split_once('=') {
-                        if let Some(slot) = i.trim().parse::<usize>().ok().and_then(|i| palette.get_mut(i)) {
+                        if let Some(slot) =
+                            i.trim().parse::<usize>().ok().and_then(|i| palette.get_mut(i))
+                        {
                             *slot = hex(c);
                         }
                     }
@@ -73,7 +75,11 @@ impl Theme {
     /// Secondary text: ANSI bright black, unless it is too close to the background.
     fn weak(&self) -> Color32 {
         let p8 = self.palette[8];
-        if (luma(p8) - luma(self.bg)).abs() > 0.2 { p8 } else { self.mix(0.5) }
+        if (luma(p8) - luma(self.bg)).abs() > 0.2 {
+            p8
+        } else {
+            self.mix(0.5)
+        }
     }
 
     /// Stand-ins for the core's gitk colours: graph palette, diff colours
@@ -108,10 +114,16 @@ impl Theme {
         v.panel_fill = self.bg;
         v.window_fill = self.bg;
         v.faint_bg_color = self.mix(0.04);
-        v.extreme_bg_color = self.bg.lerp_to_gamma(if dark { Color32::BLACK } else { Color32::WHITE }, 0.3);
+        v.extreme_bg_color =
+            self.bg.lerp_to_gamma(if dark { Color32::BLACK } else { Color32::WHITE }, 0.3);
         v.code_bg_color = self.mix(0.08);
         v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, self.mix(0.15));
-        for (w, t) in [(&mut v.widgets.inactive, 0.12), (&mut v.widgets.hovered, 0.2), (&mut v.widgets.active, 0.28), (&mut v.widgets.open, 0.2)] {
+        for (w, t) in [
+            (&mut v.widgets.inactive, 0.12),
+            (&mut v.widgets.hovered, 0.2),
+            (&mut v.widgets.active, 0.28),
+            (&mut v.widgets.open, 0.2),
+        ] {
             w.weak_bg_fill = self.mix(t);
             w.bg_fill = self.mix(t);
         }
@@ -127,7 +139,10 @@ impl Theme {
     /// Makes this the theme for its mode (light or dark).
     pub fn apply(&self, ctx: &egui::Context) {
         let dark = self.is_dark();
-        ctx.set_visuals_of(if dark { egui::Theme::Dark } else { egui::Theme::Light }, self.visuals());
+        ctx.set_visuals_of(
+            if dark { egui::Theme::Dark } else { egui::Theme::Light },
+            self.visuals(),
+        );
         ctx.data_mut(|d| d.insert_temp(key(dark), Arc::new(self.clone())));
     }
 }

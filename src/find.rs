@@ -49,7 +49,8 @@ pub enum Field {
 }
 
 impl Field {
-    pub const ALL: [Field; 5] = [Field::All, Field::Headline, Field::Comments, Field::Author, Field::Committer];
+    pub const ALL: [Field; 5] =
+        [Field::All, Field::Headline, Field::Comments, Field::Author, Field::Committer];
     pub fn label(self) -> &'static str {
         match self {
             Field::All => "All fields",
@@ -97,7 +98,11 @@ impl Query {
         let any = (on(Field::Headline) && self.re.is_match(c.subject()))
             || (on(Field::Comments) && self.re.is_match(c.body()))
             || (on(Field::Committer) && self.re.is_match(c.committer()));
-        if any { Hit::Yes } else { Hit::No }
+        if any {
+            Hit::Yes
+        } else {
+            Hit::No
+        }
     }
 
     /// Byte ranges of matches in `s`, for drawing yellow match boxes.

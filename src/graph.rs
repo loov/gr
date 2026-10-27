@@ -115,7 +115,10 @@ fn parent_rows(c: &Commit, rows: &impl Fn(&str) -> Option<usize>) -> Vec<Option<
 /// shift sideways when a lane to their left ends.
 // No gitk-style arrow breaking of long edges: many long-lived branches make
 // the graph wide. Add it if that matters.
-pub(crate) fn layout(commits: &[Commit], rows: impl Fn(&str) -> Option<usize>) -> (Vec<(usize, usize)>, Vec<Lanes>) {
+pub(crate) fn layout(
+    commits: &[Commit],
+    rows: impl Fn(&str) -> Option<usize>,
+) -> (Vec<(usize, usize)>, Vec<Lanes>) {
     let mut lanes = Lanes::default();
     let mut snapshots = vec![];
     let mut placed = Vec::with_capacity(commits.len());
@@ -131,14 +134,26 @@ pub(crate) fn layout(commits: &[Commit], rows: impl Fn(&str) -> Option<usize>) -
 
 /// Line segments of `row`, replayed from the nearest snapshot. Lane targets
 /// are unique, so every line from the row above runs straight down.
-pub(crate) fn segs(commits: &[Commit], snapshots: &[Lanes], row: usize, rows: impl Fn(&str) -> Option<usize>) -> Vec<Seg> {
+pub(crate) fn segs(
+    commits: &[Commit],
+    snapshots: &[Lanes],
+    row: usize,
+    rows: impl Fn(&str) -> Option<usize>,
+) -> Vec<Seg> {
     let first = row / EVERY * EVERY;
     let mut lanes = snapshots[row / EVERY].clone();
     for r in first..row {
         lanes.step(r, &parent_rows(&commits[r], &rows));
     }
-    let seg = |x0: usize, y0, x1: usize, y1, color: u8| Seg { x0: x0 as f32, y0, x1: x1 as f32, y1, color: PALETTE[color as usize] };
-    let mut out: Vec<Seg> = lanes.lanes.iter().enumerate().map(|(i, l)| seg(i, 0.0, i, 0.5, l.1)).collect();
+    let seg = |x0: usize, y0, x1: usize, y1, color: u8| Seg {
+        x0: x0 as f32,
+        y0,
+        x1: x1 as f32,
+        y1,
+        color: PALETTE[color as usize],
+    };
+    let mut out: Vec<Seg> =
+        lanes.lanes.iter().enumerate().map(|(i, l)| seg(i, 0.0, i, 0.5, l.1)).collect();
     let s = lanes.step(row, &parent_rows(&commits[row], &rows));
     let color = |j: usize| lanes.lanes[j].1;
     out.extend(s.src.iter().enumerate().map(|(j, &src)| seg(src, 0.5, j, 1.0, color(j))));
@@ -175,7 +190,12 @@ mod tests {
         //   a b
         //   |/
         //   r
-        let mut cs = vec![commit("m", &["a", "b"]), commit("a", &["r"]), commit("b", &["r"]), commit("r", &[])];
+        let mut cs = vec![
+            commit("m", &["a", "b"]),
+            commit("a", &["r"]),
+            commit("b", &["r"]),
+            commit("r", &[]),
+        ];
         let sg = lay(&mut cs);
         assert_eq!(cs.iter().map(|c| c.lane).collect::<Vec<_>>(), [0, 0, 1, 0]);
         // m: no line above, two lines going down
@@ -195,7 +215,8 @@ mod tests {
     #[test]
     fn missing_parents_end() {
         // a filtered view: no listed commit is another's parent
-        let mut cs: Vec<Commit> = (0..50).map(|i| commit(&format!("c{i}"), &[&format!("hidden{i}")])).collect();
+        let mut cs: Vec<Commit> =
+            (0..50).map(|i| commit(&format!("c{i}"), &[&format!("hidden{i}")])).collect();
         let sg = lay(&mut cs);
         assert!(cs.iter().all(|c| c.width == 1 && c.lane == 0));
         assert!(sg.iter().all(Vec::is_empty));
@@ -204,7 +225,8 @@ mod tests {
     #[test]
     fn lanes_compact() {
         // x is a tip on its own lane next to y's line; after x ends, lane 1 shifts left
-        let mut cs = vec![commit("t", &["p"]), commit("x", &["q"]), commit("p", &["q"]), commit("q", &[])];
+        let mut cs =
+            vec![commit("t", &["p"]), commit("x", &["q"]), commit("p", &["q"]), commit("q", &[])];
         let sg = lay(&mut cs);
         assert_eq!(cs[1].lane, 1);
         assert_eq!(cs[2].lane, 0);

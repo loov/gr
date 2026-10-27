@@ -41,7 +41,13 @@ impl Locations {
             let [r, id, peeled, head, track] = f[..] else { continue };
             // a tag's peeled id is the commit; plain refs have none
             let id = if peeled.is_empty() { id } else { peeled };
-            let loc = |name: &str| Location { name: name.into(), id: id.into(), current: head == "*", track: parse_track(track), ..Default::default() };
+            let loc = |name: &str| Location {
+                name: name.into(),
+                id: id.into(),
+                current: head == "*",
+                track: parse_track(track),
+                ..Default::default()
+            };
             if let Some(b) = r.strip_prefix("refs/heads/") {
                 l.branches.push(loc(b));
             } else if let Some(b) = r.strip_prefix("refs/remotes/") {
@@ -65,7 +71,11 @@ impl Locations {
         for line in subs.unwrap_or_default().lines() {
             let mut f = line.get(1..).unwrap_or("").split(' ');
             if let (Some(id), Some(path)) = (f.next(), f.next()) {
-                l.submodules.push(Location { name: path.into(), id: id.into(), ..Default::default() });
+                l.submodules.push(Location {
+                    name: path.into(),
+                    id: id.into(),
+                    ..Default::default()
+                });
             }
         }
 
@@ -76,7 +86,8 @@ impl Locations {
             let mut branch = None;
             for line in block.lines() {
                 if let Some(p) = line.strip_prefix("worktree ") {
-                    w.name = Path::new(p).file_name().map_or(p.into(), |n| n.to_string_lossy().into());
+                    w.name =
+                        Path::new(p).file_name().map_or(p.into(), |n| n.to_string_lossy().into());
                     w.current = p == top.trim();
                 } else if let Some(id) = line.strip_prefix("HEAD ") {
                     w.id = id.into();

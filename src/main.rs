@@ -1,15 +1,18 @@
 use std::sync::Arc;
 
 use eframe::egui::{
-    self, Align, CollapsingHeader, Color32, RichText, ComboBox, FontFamily, FontId, Galley, Key, Layout, Painter, Panel,
-    Id, Pos2, Rect, Sense, Stroke, TextEdit, Vec2,
+    self, Align, CollapsingHeader, Color32, ComboBox, FontFamily, FontId, Galley, Id, Key, Layout,
+    Painter, Panel, Pos2, Rect, RichText, Sense, Stroke, TextEdit, Vec2,
 };
 mod menu;
 mod settings;
 mod theme;
 
 use egui_extras::{Column, TableBuilder};
-use gr::{Annotations, Details, Dir, Location, Locations, Field, Hit, History, Mode, Query, RefKind, Repo, Rgb, Seg, Visit, Wrap, REMOTE_PREFIX};
+use gr::{
+    Annotations, Details, Dir, Field, History, Hit, Location, Locations, Mode, Query, RefKind,
+    Repo, Rgb, Seg, Visit, Wrap, REMOTE_PREFIX,
+};
 
 const ROW_H: f32 = 18.0;
 /// Commit list rows hold two lines: subject, then committer and date.
@@ -45,7 +48,11 @@ fn fg(ui: &egui::Ui, c: Rgb) -> Color32 {
     let dark = ui.visuals().dark_mode;
     let themed = theme::current(ui.ctx(), dark).is_some_and(|t| t.map(c).is_some());
     let col = bg(ui, c);
-    if dark && !themed { col.lerp_to_gamma(Color32::WHITE, 0.35) } else { col }
+    if dark && !themed {
+        col.lerp_to_gamma(Color32::WHITE, 0.35)
+    } else {
+        col
+    }
 }
 
 fn galley(p: &Painter, text: &str, font: FontId, color: Color32) -> Arc<Galley> {
@@ -65,40 +72,52 @@ fn paint_text(p: &Painter, x: f32, y: f32, g: Arc<Galley>, color: Color32) -> f3
 
 /// What `App::keys` does, for the Help menu. Cmd is Ctrl outside macOS.
 const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
-    ("Commits", &[
-        ("↑ ↓  p n", "previous, next commit"),
-        ("PageUp PageDown", "a page of commits up, down"),
-        ("Home End", "first, last commit"),
-        ("← z h", "back in the visit history"),
-        ("→ x l", "forward in the visit history"),
-        ("Cmd+1 … Cmd+9", "go to the first … ninth parent"),
-        ("g", "type a commit id, branch or tag to go to"),
-        ("Cmd+↑ Cmd+↓", "scroll the list by a commit"),
-        ("Cmd+PageUp Cmd+PageDown", "scroll the list by a page"),
-        ("Cmd+Home Cmd+End", "scroll the list to the top, bottom"),
-    ]),
-    ("Review", &[
-        ("k", "mark the commit ok, or unmark it"),
-        ("j", "next commit to review on this branch"),
-    ]),
-    ("Find", &[
-        ("/", "type what to find"),
-        ("Enter  Cmd+F", "next match"),
-        ("?", "previous match"),
-        ("Cmd+G", "next match, without wrapping around"),
-        ("Shift+↓ Shift+↑", "next, previous match without wrapping around"),
-    ]),
-    ("Diff", &[
-        ("Space Backspace", "a page down, up"),
-        ("d u", "18 lines down, up"),
-        ("f b", "next, previous file"),
-    ]),
-    ("Window", &[
-        ("r  F5", "reload"),
-        ("Cmd+,", "settings"),
-        ("Cmd+plus Cmd+minus", "text size"),
-        ("Cmd+W  Cmd+Q", "close"),
-    ]),
+    (
+        "Commits",
+        &[
+            ("↑ ↓  p n", "previous, next commit"),
+            ("PageUp PageDown", "a page of commits up, down"),
+            ("Home End", "first, last commit"),
+            ("← z h", "back in the visit history"),
+            ("→ x l", "forward in the visit history"),
+            ("Cmd+1 … Cmd+9", "go to the first … ninth parent"),
+            ("g", "type a commit id, branch or tag to go to"),
+            ("Cmd+↑ Cmd+↓", "scroll the list by a commit"),
+            ("Cmd+PageUp Cmd+PageDown", "scroll the list by a page"),
+            ("Cmd+Home Cmd+End", "scroll the list to the top, bottom"),
+        ],
+    ),
+    (
+        "Review",
+        &[("k", "mark the commit ok, or unmark it"), ("j", "next commit to review on this branch")],
+    ),
+    (
+        "Find",
+        &[
+            ("/", "type what to find"),
+            ("Enter  Cmd+F", "next match"),
+            ("?", "previous match"),
+            ("Cmd+G", "next match, without wrapping around"),
+            ("Shift+↓ Shift+↑", "next, previous match without wrapping around"),
+        ],
+    ),
+    (
+        "Diff",
+        &[
+            ("Space Backspace", "a page down, up"),
+            ("d u", "18 lines down, up"),
+            ("f b", "next, previous file"),
+        ],
+    ),
+    (
+        "Window",
+        &[
+            ("r  F5", "reload"),
+            ("Cmd+,", "settings"),
+            ("Cmd+plus Cmd+minus", "text size"),
+            ("Cmd+W  Cmd+Q", "close"),
+        ],
+    ),
 ];
 
 struct App {
@@ -150,7 +169,12 @@ struct App {
 }
 
 impl App {
-    fn new(repo: Repo, native: Option<menu::Native>, settings: settings::Settings, ctx: &egui::Context) -> App {
+    fn new(
+        repo: Repo,
+        native: Option<menu::Native>,
+        settings: settings::Settings,
+        ctx: &egui::Context,
+    ) -> App {
         let sel = repo.head_row.unwrap_or(0);
         let watch = {
             let ctx = ctx.clone();
@@ -290,8 +314,16 @@ impl App {
         if !self.loading.as_ref().is_some_and(|j| j.is_finished()) {
             return;
         }
-        let res = self.loading.take().unwrap().join().unwrap_or_else(|_| Err(std::io::Error::other("load thread panicked")));
-        match res.map(|repo| { let row = self.repo.place(&repo, self.sel); (repo, row) }) {
+        let res = self
+            .loading
+            .take()
+            .unwrap()
+            .join()
+            .unwrap_or_else(|_| Err(std::io::Error::other("load thread panicked")));
+        match res.map(|repo| {
+            let row = self.repo.place(&repo, self.sel);
+            (repo, row)
+        }) {
             Ok((repo, row)) => {
                 self.repo = repo;
                 self.locs = self.repo.locations();
@@ -336,7 +368,8 @@ impl App {
         if !self.job.as_ref().is_some_and(|j| j.is_finished()) {
             return;
         }
-        let res = self.job.take().unwrap().join().unwrap_or_else(|_| Err("git thread panicked".into()));
+        let res =
+            self.job.take().unwrap().join().unwrap_or_else(|_| Err("git thread panicked".into()));
         if let Some(n) = &self.native {
             n.set_enabled(true);
         }
@@ -394,7 +427,17 @@ impl App {
         } else if cmd(Key::PageDown) {
             self.list_scroll = Some(self.list_off + list_page);
         }
-        let nums = [Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5, Key::Num6, Key::Num7, Key::Num8, Key::Num9];
+        let nums = [
+            Key::Num1,
+            Key::Num2,
+            Key::Num3,
+            Key::Num4,
+            Key::Num5,
+            Key::Num6,
+            Key::Num7,
+            Key::Num8,
+            Key::Num9,
+        ];
         for (n, k) in nums.into_iter().enumerate() {
             if cmd(k) {
                 let parent = self.repo.commits.get(self.sel).and_then(|c| c.parents().nth(n));
@@ -403,7 +446,9 @@ impl App {
                 }
             }
         }
-        if ctx.input(|i| i.key_pressed(Key::F5) && !(i.modifiers.ctrl || i.modifiers.alt || i.modifiers.command)) {
+        if ctx.input(|i| {
+            i.key_pressed(Key::F5) && !(i.modifiers.ctrl || i.modifiers.alt || i.modifiers.command)
+        }) {
             self.reload();
         }
         let shift = |k| ctx.input(|i| i.key_pressed(k) && i.modifiers.shift_only());
@@ -430,9 +475,12 @@ impl App {
         // a focused button turns Enter/Space into its own click
         let button = ctx.memory(|m| m.focused()).is_some();
         let diff_page = (self.diff_h - ROW_H).max(ROW_H);
-        let typed = |s: &str| ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(t) if t == s)));
+        let typed = |s: &str| {
+            ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(t) if t == s)))
+        };
         // keep the focusing keystroke out of the entry
-        let drop_text = || ctx.input_mut(|i| i.events.retain(|e| !matches!(e, egui::Event::Text(_))));
+        let drop_text =
+            || ctx.input_mut(|i| i.events.retain(|e| !matches!(e, egui::Event::Text(_))));
         if pressed(Key::P) {
             self.select(self.sel.saturating_sub(1));
         } else if pressed(Key::N) {
@@ -488,10 +536,19 @@ impl App {
         let id = self.repo.commits[self.sel].id();
         let mut branches: Vec<&Location> = self.locs.branches.iter().collect();
         branches.sort_by_key(|b| !b.current);
-        let Some(b) = branches.iter().find(|b| b.own.iter().any(|o| o == id)).or_else(|| branches.iter().find(|b| b.current)) else {
+        let Some(b) = branches
+            .iter()
+            .find(|b| b.own.iter().any(|o| o == id))
+            .or_else(|| branches.iter().find(|b| b.current))
+        else {
             return;
         };
-        let next = b.own.iter().filter(|o| !self.notes.has(o, "ok")).filter_map(|o| self.repo.index_of(o)).max();
+        let next = b
+            .own
+            .iter()
+            .filter(|o| !self.notes.has(o, "ok"))
+            .filter_map(|o| self.repo.index_of(o))
+            .max();
         match next {
             Some(row) => self.select(row),
             None => self.status = format!("{} has no commits left to review", b.name),
@@ -500,7 +557,8 @@ impl App {
 
     /// Moves ok marks from rewritten commits onto their new versions.
     fn carry_marks(&mut self) {
-        let own: std::collections::BTreeSet<&str> = self.locs.branches.iter().flat_map(|b| &b.own).map(String::as_str).collect();
+        let own: std::collections::BTreeSet<&str> =
+            self.locs.branches.iter().flat_map(|b| &b.own).map(String::as_str).collect();
         let own: Vec<&str> = own.into_iter().collect();
         if let Err(e) = self.repo.carry_tag(&mut self.notes, "ok", &own) {
             self.status = format!("gr.info: {e}");
@@ -516,7 +574,8 @@ impl App {
         let id = c.id().to_string();
         let res = self.notes.toggle(&id, tag).and_then(|set| {
             // the patch id lets the mark follow the commit through a rebase
-            let pid = if set && tag == "ok" { self.repo.patch_ids(&[&id]).remove(&id) } else { None };
+            let pid =
+                if set && tag == "ok" { self.repo.patch_ids(&[&id]).remove(&id) } else { None };
             self.notes.set_value(&id, "patch-id", pid.as_deref())
         });
         if let Err(e) = res {
@@ -527,7 +586,14 @@ impl App {
     fn id_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             let label = ui.label("Commit ID:");
-            let r = ui.add(TextEdit::singleline(&mut self.id_text).id(Id::unique(ID_EDIT)).font(egui::TextStyle::Monospace).desired_width(330.0)).labelled_by(label.id);
+            let r = ui
+                .add(
+                    TextEdit::singleline(&mut self.id_text)
+                        .id(Id::unique(ID_EDIT))
+                        .font(egui::TextStyle::Monospace)
+                        .desired_width(330.0),
+                )
+                .labelled_by(label.id);
             if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
                 match self.repo.resolve(&self.id_text) {
                     Ok(row) => self.select(row),
@@ -580,7 +646,13 @@ impl App {
                 self.find(Dir::Up, Wrap::Around);
             }
             let label = ui.label("commit containing:");
-            let r = ui.add(TextEdit::singleline(&mut self.find_text).id(Id::unique(FIND_EDIT)).desired_width(300.0)).labelled_by(label.id);
+            let r = ui
+                .add(
+                    TextEdit::singleline(&mut self.find_text)
+                        .id(Id::unique(FIND_EDIT))
+                        .desired_width(300.0),
+                )
+                .labelled_by(label.id);
             if r.changed() {
                 self.update_query();
             }
@@ -590,18 +662,24 @@ impl App {
             }
             let (mode, field) = (self.mode, self.field);
             // named for screen readers, which have no label to go by
-            let named = |r: egui::Response, name: &'static str| r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, name));
-            let r = ComboBox::from_id_salt("mode").selected_text(self.mode.label()).show_ui(ui, |ui| {
-                for m in Mode::ALL {
-                    ui.selectable_value(&mut self.mode, m, m.label());
-                }
-            });
+            let named = |r: egui::Response, name: &'static str| {
+                r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, name))
+            };
+            let r =
+                ComboBox::from_id_salt("mode").selected_text(self.mode.label()).show_ui(ui, |ui| {
+                    for m in Mode::ALL {
+                        ui.selectable_value(&mut self.mode, m, m.label());
+                    }
+                });
             named(r.response, "Match");
-            let r = ComboBox::from_id_salt("field").selected_text(self.field.label()).width(110.0).show_ui(ui, |ui| {
-                for f in Field::ALL {
-                    ui.selectable_value(&mut self.field, f, f.label());
-                }
-            });
+            let r = ComboBox::from_id_salt("field")
+                .selected_text(self.field.label())
+                .width(110.0)
+                .show_ui(ui, |ui| {
+                    for f in Field::ALL {
+                        ui.selectable_value(&mut self.field, f, f.label());
+                    }
+                });
             named(r.response, "Search in");
             if (mode, field) != (self.mode, self.field) {
                 self.update_query();
@@ -632,18 +710,36 @@ impl App {
             table = table.vertical_scroll_offset(off);
         }
         let (repo, sel, query, notes) = (&self.repo, self.sel, &self.query, &self.notes);
-        let done: std::collections::HashSet<&str> = self.locs.branches.iter()
-            .filter(|b| { let (d, n) = reviewed(b, notes); n > 0 && d == n })
+        let done: std::collections::HashSet<&str> = self
+            .locs
+            .branches
+            .iter()
+            .filter(|b| {
+                let (d, n) = reviewed(b, notes);
+                n > 0 && d == n
+            })
             .map(|b| b.name.as_str())
             .collect();
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs() as i64);
         let out = table.body(|body| {
             body.rows(LIST_H, repo.commits.len(), |mut row| {
                 let i = row.index();
                 let c = &repo.commits[i];
                 let hit = query.as_ref().map_or(Hit::No, |q| q.hit(c));
                 row.set_selected(i == sel);
-                row.col(|ui| draw_commit_cell(ui, c, &repo.segs(i), hit != Hit::No, notes.has(c.id(), "ok"), &done, now));
+                row.col(|ui| {
+                    draw_commit_cell(
+                        ui,
+                        c,
+                        &repo.segs(i),
+                        hit != Hit::No,
+                        notes.has(c.id(), "ok"),
+                        &done,
+                        now,
+                    )
+                });
                 if row.response().clicked() {
                     clicked = Some(i);
                 }
@@ -716,7 +812,10 @@ impl App {
                 if ys[i] >= view.max.y {
                     break;
                 }
-                let rect = Rect::from_min_size(top + Vec2::new(0.0, ys[i]), Vec2::new(w, ys[i + 1] - ys[i]));
+                let rect = Rect::from_min_size(
+                    top + Vec2::new(0.0, ys[i]),
+                    Vec2::new(w, ys[i + 1] - ys[i]),
+                );
                 // a column per side: its rect, line and wrap width in chars
                 let cols: Vec<(Rect, &gr::Line, usize)> = match &line.right {
                     None => vec![(rect, line, full)],
@@ -724,14 +823,25 @@ impl App {
                         let mid = rect.left() + w / 2.0;
                         vec![
                             (Rect::from_x_y_ranges(rect.left()..=mid, rect.y_range()), line, half),
-                            (Rect::from_x_y_ranges(mid..=rect.right(), rect.y_range()), &**right, half),
+                            (
+                                Rect::from_x_y_ranges(mid..=rect.right(), rect.y_range()),
+                                &**right,
+                                half,
+                            ),
                         ]
                     }
                 };
                 for (side, (r, l, n)) in cols.into_iter().enumerate() {
                     // under the label, so text selection still works on the text
-                    let under = ui.interact(r, ui.scope_id().with(("diff line", i, side)), Sense::click());
-                    let resp = draw_line(&mut ui.new_child(egui::UiBuilder::new().max_rect(r)), r, l, char_w, n);
+                    let under =
+                        ui.interact(r, ui.scope_id().with(("diff line", i, side)), Sense::click());
+                    let resp = draw_line(
+                        &mut ui.new_child(egui::UiBuilder::new().max_rect(r)),
+                        r,
+                        l,
+                        char_w,
+                        n,
+                    );
                     if origin_menu(&under, l) || origin_menu(&resp, l) {
                         origin = Some((i, l.clone()));
                     }
@@ -742,7 +852,11 @@ impl App {
                     }
                 }
                 if line.right.is_some() {
-                    ui.painter().vline(rect.left() + w / 2.0, rect.y_range(), ui.visuals().widgets.noninteractive.bg_stroke);
+                    ui.painter().vline(
+                        rect.left() + w / 2.0,
+                        rect.y_range(),
+                        ui.visuals().widgets.noninteractive.bg_stroke,
+                    );
                 }
             }
         });
@@ -770,13 +884,23 @@ impl App {
         if files.is_empty() {
             return;
         }
-        let widest = files.iter().map(|(name, _)| ctx.fonts_mut(|f| f.layout_no_wrap(name.clone(), font(13.0, false), Color32::WHITE).size().x)).fold(0.0, f32::max);
+        let widest = files
+            .iter()
+            .map(|(name, _)| {
+                ctx.fonts_mut(|f| {
+                    f.layout_no_wrap(name.clone(), font(13.0, false), Color32::WHITE).size().x
+                })
+            })
+            .fold(0.0, f32::max);
         let w = (widest + 8.0).min(diff.width() * 0.4);
         // clear of the diff's vertical scroll bar
         let pos = diff.right_top() + Vec2::new(-18.0, 6.0);
         let id = Id::unique("files");
         // see-through once the diff scrolls under it, solid again under the pointer
-        let hovered = ctx.memory(|m| m.area_rect(id)).zip(ctx.input(|i| i.pointer.hover_pos())).is_some_and(|(r, p)| r.contains(p));
+        let hovered = ctx
+            .memory(|m| m.area_rect(id))
+            .zip(ctx.input(|i| i.pointer.hover_pos()))
+            .is_some_and(|(r, p)| r.contains(p));
         let target = if self.diff_off.y > 0.0 && !hovered { 0.3 } else { 1.0 };
         let opacity = ctx.animate_value_with_time(id, target, 0.15);
         egui::Area::new(id).pivot(egui::Align2::RIGHT_TOP).fixed_pos(pos).show(ctx, |ui| {
@@ -786,29 +910,40 @@ impl App {
                 // the area sizes itself from the last frame, which can cut the last
                 // row when the file count changes, so give the height outright
                 let h = (files.len() as f32 * ROW_H).min(diff.height() * 0.4);
-                egui::ScrollArea::vertical().id_salt("files").min_scrolled_height(h).max_height(h).show_rows(ui, ROW_H, files.len(), |ui, range| {
-                    for (i, (name, line)) in files.iter().enumerate().take(range.end).skip(range.start) {
-                        let color = ui.visuals().text_color();
-                        let g = galley(ui.painter(), name, font(13.0, false), color);
-                        let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, ROW_H), Sense::click());
-                        if i == cur {
-                            ui.painter().rect_filled(rect, 0.0, ui.visuals().selection.bg_fill);
+                egui::ScrollArea::vertical()
+                    .id_salt("files")
+                    .min_scrolled_height(h)
+                    .max_height(h)
+                    .show_rows(ui, ROW_H, files.len(), |ui, range| {
+                        for (i, (name, line)) in
+                            files.iter().enumerate().take(range.end).skip(range.start)
+                        {
+                            let color = ui.visuals().text_color();
+                            let g = galley(ui.painter(), name, font(13.0, false), color);
+                            let (rect, resp) =
+                                ui.allocate_exact_size(Vec2::new(w, ROW_H), Sense::click());
+                            if i == cur {
+                                ui.painter().rect_filled(rect, 0.0, ui.visuals().selection.bg_fill);
+                            }
+                            // long names are cut at the list's edge
+                            ui.painter().with_clip_rect(rect).galley(
+                                Pos2::new(rect.left() + 4.0, rect.center().y - g.size().y / 2.0),
+                                g,
+                                color,
+                            );
+                            if resp.clicked() {
+                                jump = Some(*line);
+                            }
+                            if i > 0 {
+                                resp.context_menu(|ui| {
+                                    if ui.button("Show History of This File").clicked() {
+                                        hist = Some(name.clone());
+                                        ui.close();
+                                    }
+                                });
+                            }
                         }
-                        // long names are cut at the list's edge
-                        ui.painter().with_clip_rect(rect).galley(Pos2::new(rect.left() + 4.0, rect.center().y - g.size().y / 2.0), g, color);
-                        if resp.clicked() {
-                            jump = Some(*line);
-                        }
-                        if i > 0 {
-                            resp.context_menu(|ui| {
-                                if ui.button("Show History of This File").clicked() {
-                                    hist = Some(name.clone());
-                                    ui.close();
-                                }
-                            });
-                        }
-                    }
-                });
+                    });
             });
         });
         if let Some(line) = jump {
@@ -834,19 +969,32 @@ impl App {
                 ("WORKTREES", &l.worktrees, false, false),
             ] {
                 let n = if title == "REMOTES" {
-                    list.iter().map(|r| r.name.split('/').next()).collect::<std::collections::HashSet<_>>().len()
+                    list.iter()
+                        .map(|r| r.name.split('/').next())
+                        .collect::<std::collections::HashSet<_>>()
+                        .len()
                 } else {
                     list.len()
                 };
-                CollapsingHeader::new(RichText::new(format!("{title} ({n})")).strong()).default_open(open).show(ui, |ui| {
-                    if nest {
-                        location_tree(ui, title, list, 0, title == "BRANCHES", (cur, notes), &mut go);
-                    } else {
-                        for loc in list.iter() {
-                            location_row(ui, &loc.name, loc, cur, notes, &mut go);
+                CollapsingHeader::new(RichText::new(format!("{title} ({n})")).strong())
+                    .default_open(open)
+                    .show(ui, |ui| {
+                        if nest {
+                            location_tree(
+                                ui,
+                                title,
+                                list,
+                                0,
+                                title == "BRANCHES",
+                                (cur, notes),
+                                &mut go,
+                            );
+                        } else {
+                            for loc in list.iter() {
+                                location_row(ui, &loc.name, loc, cur, notes, &mut go);
+                            }
                         }
-                    }
-                });
+                    });
             }
         });
         if let Some(loc) = go {
@@ -861,7 +1009,8 @@ impl App {
         ui.horizontal(|ui| {
             let opts = self.settings.diff.clone();
             let label = ui.label("Lines of context:");
-            ui.add(egui::DragValue::new(&mut self.settings.diff.context).range(0..=1000)).labelled_by(label.id);
+            ui.add(egui::DragValue::new(&mut self.settings.diff.context).range(0..=1000))
+                .labelled_by(label.id);
             ui.checkbox(&mut self.settings.diff.ignore_space, "Ignore space change");
             ui.label("Side by side:");
             for m in settings::Split::ALL {
@@ -876,7 +1025,15 @@ impl App {
 
 /// Rows of `list` (sorted by name) nested on the '/'-separated segment at `depth`.
 /// `at` is the selected commit's id and the review marks.
-fn location_tree(ui: &mut egui::Ui, salt: &str, list: &[Location], depth: usize, open: bool, at: (&str, &Annotations), go: &mut Option<Location>) {
+fn location_tree(
+    ui: &mut egui::Ui,
+    salt: &str,
+    list: &[Location],
+    depth: usize,
+    open: bool,
+    at: (&str, &Annotations),
+    go: &mut Option<Location>,
+) {
     let (cur, notes) = at;
     let seg = |l: &Location| l.name.split('/').nth(depth).unwrap_or("").to_string();
     let leaf = |l: &Location| l.name.split('/').count() == depth + 1;
@@ -920,7 +1077,13 @@ fn wrap_cols(w: f32, char_w: f32) -> usize {
 /// Paints `line` into `rect`, wrapped at `cols` chars: background, changed
 /// words, then its text as a selectable label, so text can be selected
 /// across lines and copied.
-fn draw_line(ui: &mut egui::Ui, rect: Rect, line: &gr::Line, char_w: f32, cols: usize) -> egui::Response {
+fn draw_line(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    line: &gr::Line,
+    char_w: f32,
+    cols: usize,
+) -> egui::Response {
     let fg = fg(ui, line.style.fg);
     let p = ui.painter().with_clip_rect(rect);
     let left = rect.left() + 4.0;
@@ -933,7 +1096,10 @@ fn draw_line(ui: &mut egui::Ui, rect: Rect, line: &gr::Line, char_w: f32, cols: 
             for row in s / cols..=(e.max(s + 1) - 1) / cols {
                 let (a, b) = (s.max(row * cols) - row * cols, e.min((row + 1) * cols) - row * cols);
                 let y = rect.top() + row as f32 * ROW_H;
-                let r = Rect::from_x_y_ranges(left + a as f32 * char_w..=left + b as f32 * char_w, y..=y + ROW_H);
+                let r = Rect::from_x_y_ranges(
+                    left + a as f32 * char_w..=left + b as f32 * char_w,
+                    y..=y + ROW_H,
+                );
                 p.rect_filled(r, 2.0, bg.lerp_to_gamma(fg, 0.25));
             }
         }
@@ -944,7 +1110,9 @@ fn draw_line(ui: &mut egui::Ui, rect: Rect, line: &gr::Line, char_w: f32, cols: 
         let w = size.x.min(rect.width() - 8.0);
         p.hline(left..=left + w, rect.top() + ROW_H / 2.0 + 7.0, Stroke::new(1.0, fg));
     }
-    let mut text = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_size(Pos2::new(left, rect.top()), size)));
+    let mut text = ui.new_child(
+        egui::UiBuilder::new().max_rect(Rect::from_min_size(Pos2::new(left, rect.top()), size)),
+    );
     text.set_clip_rect(rect.intersect(ui.clip_rect()));
     text.add(egui::Label::new(g).selectable(true))
 }
@@ -953,7 +1121,13 @@ fn draw_line(ui: &mut egui::Ui, rect: Rect, line: &gr::Line, char_w: f32, cols: 
 /// `wrap` so each row holds the same number of chars, each row `ROW_H` high.
 fn line_galley(ui: &egui::Ui, line: &gr::Line, fg: Color32, wrap: f32) -> Arc<Galley> {
     let f = font(12.0, line.style.bold);
-    let format = |color| egui::TextFormat { font_id: f.clone(), color, line_height: Some(ROW_H), valign: Align::Center, ..Default::default() };
+    let format = |color| egui::TextFormat {
+        font_id: f.clone(),
+        color,
+        line_height: Some(ROW_H),
+        valign: Align::Center,
+        ..Default::default()
+    };
     let byte = |c: usize| line.text.char_indices().nth(c).map_or(line.text.len(), |(b, _)| b);
     let mut job = egui::text::LayoutJob::default();
     let mut at = 0;
@@ -964,7 +1138,8 @@ fn line_galley(ui: &egui::Ui, line: &gr::Line, fg: Color32, wrap: f32) -> Arc<Ga
         at = e;
     }
     job.append(&line.text[at..], 0.0, format(fg));
-    job.wrap = egui::text::TextWrapping { max_width: wrap, break_anywhere: true, ..Default::default() };
+    job.wrap =
+        egui::text::TextWrapping { max_width: wrap, break_anywhere: true, ..Default::default() };
     ui.painter().layout_job(job)
 }
 
@@ -973,8 +1148,16 @@ fn reviewed(loc: &Location, notes: &Annotations) -> (usize, usize) {
     (loc.own.iter().filter(|id| notes.has(id, "ok")).count(), loc.own.len())
 }
 
-fn location_row(ui: &mut egui::Ui, name: &str, loc: &Location, cur: &str, notes: &Annotations, go: &mut Option<Location>) {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW_H), Sense::click());
+fn location_row(
+    ui: &mut egui::Ui,
+    name: &str,
+    loc: &Location,
+    cur: &str,
+    notes: &Annotations,
+    go: &mut Option<Location>,
+) {
+    let (rect, resp) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW_H), Sense::click());
     let p = ui.painter();
     if !loc.id.is_empty() && loc.id == cur {
         p.rect_filled(rect, 2.0, ui.visuals().selection.bg_fill);
@@ -993,7 +1176,11 @@ fn location_row(ui: &mut egui::Ui, name: &str, loc: &Location, cur: &str, notes:
     let (done, n) = reviewed(loc, notes);
     if done > 0 {
         // ✓ once every commit is ok, the progress until then
-        let (text, color) = if done == n { ("✓".to_string(), fg(ui, [0, 0x98, 0])) } else { (format!("{done}/{n}"), ui.visuals().weak_text_color()) };
+        let (text, color) = if done == n {
+            ("✓".to_string(), fg(ui, [0, 0x98, 0]))
+        } else {
+            (format!("{done}/{n}"), ui.visuals().weak_text_color())
+        };
         let g = galley(p, &text, font(12.0, done == n), color);
         right -= g.size().x;
         paint_text(p, right, rect.center().y, g, color);
@@ -1001,8 +1188,11 @@ fn location_row(ui: &mut egui::Ui, name: &str, loc: &Location, cur: &str, notes:
     }
     let text = ui.visuals().text_color();
     let g = galley(p, name, font(13.0, loc.current), text);
-    p.with_clip_rect(Rect::from_x_y_ranges(rect.left()..=right, rect.y_range()))
-        .galley(Pos2::new(rect.left() + 2.0, rect.center().y - g.size().y / 2.0), g, text);
+    p.with_clip_rect(Rect::from_x_y_ranges(rect.left()..=right, rect.y_range())).galley(
+        Pos2::new(rect.left() + 2.0, rect.center().y - g.size().y / 2.0),
+        g,
+        text,
+    );
     if resp.on_hover_text(&loc.name).clicked() && !loc.id.is_empty() {
         *go = Some(loc.clone());
     }
@@ -1011,14 +1201,26 @@ fn location_row(ui: &mut egui::Ui, name: &str, loc: &Location, cur: &str, notes:
 /// A commit list row: graph, refs and subject on the first line;
 /// committer and short date on the second.
 /// `done` names the branches whose own commits are all ok; their labels get a ✓.
-fn draw_commit_cell(ui: &mut egui::Ui, c: &gr::Commit, segs: &[Seg], bold: bool, ok: bool, done: &std::collections::HashSet<&str>, now: i64) {
+fn draw_commit_cell(
+    ui: &mut egui::Ui,
+    c: &gr::Commit,
+    segs: &[Seg],
+    bold: bool,
+    ok: bool,
+    done: &std::collections::HashSet<&str>,
+    now: i64,
+) {
     let rect = ui.max_rect();
     let p = ui.painter();
     let text = ui.visuals().text_color();
     let x0 = rect.left() + 3.0 + LANE_W / 2.0;
     // the node sits on the first line, so stretch the lower half of the graph
     let pt = |x: f32, y: f32| {
-        let py = if y <= 0.5 { y * ROW_H } else { ROW_H / 2.0 + (y - 0.5) * 2.0 * (rect.height() - ROW_H / 2.0) };
+        let py = if y <= 0.5 {
+            y * ROW_H
+        } else {
+            ROW_H / 2.0 + (y - 0.5) * 2.0 * (rect.height() - ROW_H / 2.0)
+        };
         Pos2::new(x0 + x * LANE_W, rect.top() + py)
     };
     let thick = 1.5;
@@ -1045,7 +1247,11 @@ fn draw_commit_cell(ui: &mut egui::Ui, c: &gr::Commit, segs: &[Seg], bold: bool,
             let n = r.remote_prefix_len();
             if r.kind == RefKind::Remote && n > 0 {
                 let pw = galley(p, &r.name[..n], font(11.0, r.current), text).size().x + 3.0;
-                p.rect_filled(Rect::from_min_size(b.min, Vec2::new(pw, b.height())), 2.0, tint(REMOTE_PREFIX));
+                p.rect_filled(
+                    Rect::from_min_size(b.min, Vec2::new(pw, b.height())),
+                    2.0,
+                    tint(REMOTE_PREFIX),
+                );
             }
             p.rect_stroke(b, 2.0, Stroke::new(1.0, accent), egui::StrokeKind::Inside);
             paint_text(p, x + 3.0, y, g, text);
@@ -1069,8 +1275,11 @@ fn draw_commit_cell(ui: &mut egui::Ui, c: &gr::Commit, segs: &[Seg], bold: bool,
     }
     let name = galley(p, c.committer_name(), font(12.0, false), weak);
     // keep the name from running under the date
-    p.with_clip_rect(Rect::from_x_y_ranges(rect.left()..=date_x - 8.0, rect.y_range()))
-        .galley(Pos2::new(text_x, y2 - name.size().y / 2.0), name, weak);
+    p.with_clip_rect(Rect::from_x_y_ranges(rect.left()..=date_x - 8.0, rect.y_range())).galley(
+        Pos2::new(text_x, y2 - name.size().y / 2.0),
+        name,
+        weak,
+    );
 }
 
 impl eframe::App for App {
@@ -1091,28 +1300,35 @@ impl eframe::App for App {
             Panel::top("menubar").show(ui, |ui| clicked = menu::egui_bar(ui, self.job.is_none()));
         }
         match clicked {
-            Some(menu::Action::Git(i)) if self.job.is_none() => self.run_git(ui.ctx(), menu::GIT[i].1),
+            Some(menu::Action::Git(i)) if self.job.is_none() => {
+                self.run_git(ui.ctx(), menu::GIT[i].1)
+            }
             Some(menu::Action::Settings) => self.settings.open = true,
             Some(menu::Action::Shortcuts) => self.shortcuts = true,
             _ => {}
         }
-        egui::Window::new("Keyboard Shortcuts").open(&mut self.shortcuts).resizable(false).collapsible(false).show(ui.ctx(), |ui| {
-            for &(group, keys) in SHORTCUTS {
-                ui.label(RichText::new(group).strong());
-                egui::Grid::new(group).num_columns(2).spacing([24.0, 4.0]).show(ui, |ui| {
-                    for (k, what) in keys {
-                        ui.label(RichText::new(*k).monospace());
-                        ui.label(*what);
-                        ui.end_row();
-                    }
-                });
-                ui.add_space(8.0);
-            }
-        });
+        egui::Window::new("Keyboard Shortcuts")
+            .open(&mut self.shortcuts)
+            .resizable(false)
+            .collapsible(false)
+            .show(ui.ctx(), |ui| {
+                for &(group, keys) in SHORTCUTS {
+                    ui.label(RichText::new(group).strong());
+                    egui::Grid::new(group).num_columns(2).spacing([24.0, 4.0]).show(ui, |ui| {
+                        for (k, what) in keys {
+                            ui.label(RichText::new(*k).monospace());
+                            ui.label(*what);
+                            ui.end_row();
+                        }
+                    });
+                    ui.add_space(8.0);
+                }
+            });
         if self.settings.show(ui.ctx()) {
             self.select(self.sel);
         }
-        let frame = egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(12, 8));
+        let frame =
+            egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(12, 8));
         Panel::top("toolbar").frame(frame).show(ui, |ui| self.toolbar(ui));
         Panel::bottom("statusbar").frame(frame).show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -1120,7 +1336,10 @@ impl eframe::App for App {
                 self.diff_bar(ui);
             });
         });
-        Panel::left("locations").resizable(true).default_size(230.0).show(ui, |ui| self.sidebar(ui));
+        Panel::left("locations")
+            .resizable(true)
+            .default_size(230.0)
+            .show(ui, |ui| self.sidebar(ui));
         Panel::left("list").resizable(true).default_size(w * 0.35).min_size(200.0).show(ui, |ui| {
             self.commit_list(ui);
         });
@@ -1139,7 +1358,13 @@ impl eframe::App for App {
 
 /// The app, or the history still loading at startup.
 enum Gr {
-    Loading(Option<(std::thread::JoinHandle<std::io::Result<Repo>>, Option<menu::Native>, settings::Settings)>),
+    Loading(
+        Option<(
+            std::thread::JoinHandle<std::io::Result<Repo>>,
+            Option<menu::Native>,
+            settings::Settings,
+        )>,
+    ),
     Ready(Box<App>),
 }
 
@@ -1165,7 +1390,8 @@ impl eframe::App for Gr {
                 return;
             }
             let (job, native, settings) = slot.take().expect("checked to be finished above");
-            match job.join().unwrap_or_else(|_| Err(std::io::Error::other("load thread panicked"))) {
+            match job.join().unwrap_or_else(|_| Err(std::io::Error::other("load thread panicked")))
+            {
                 Ok(repo) => {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Title(repo.title()));
                     *self = Gr::Ready(Box::new(App::new(repo, native, settings, ui.ctx())));
@@ -1186,11 +1412,19 @@ impl eframe::App for Gr {
 /// `system_fonts` only the bundled fonts are used, as the tests do.
 fn init(cc: &eframe::CreationContext, system_fonts: bool) -> settings::Settings {
     let mut fonts = egui::FontDefinitions::default();
-    fonts.font_data.insert("regular".into(), Arc::new(egui::FontData::from_static(include_bytes!("../fonts/LythMono-Regular.ttf"))));
-    fonts.font_data.insert("bold".into(), Arc::new(egui::FontData::from_static(include_bytes!("../fonts/LythMono-Bold.ttf"))));
+    fonts.font_data.insert(
+        "regular".into(),
+        Arc::new(egui::FontData::from_static(include_bytes!("../fonts/LythMono-Regular.ttf"))),
+    );
+    fonts.font_data.insert(
+        "bold".into(),
+        Arc::new(egui::FontData::from_static(include_bytes!("../fonts/LythMono-Bold.ttf"))),
+    );
     // Menlo ships with macOS but may not be redistributed, so load it
     // from the system and keep Lyth Mono for other platforms.
-    if let Some(menlo) = system_fonts.then(|| std::fs::read("/System/Library/Fonts/Menlo.ttc").ok()).flatten() {
+    if let Some(menlo) =
+        system_fonts.then(|| std::fs::read("/System/Library/Fonts/Menlo.ttc").ok()).flatten()
+    {
         for (name, index) in [("regular", 0), ("bold", 1)] {
             let mut f = egui::FontData::from_owned(menlo.clone());
             f.index = index;
@@ -1200,7 +1434,9 @@ fn init(cc: &eframe::CreationContext, system_fonts: bool) -> settings::Settings 
     for fam in [FontFamily::Proportional, FontFamily::Monospace] {
         fonts.families.entry(fam).or_default().insert(0, "regular".into());
     }
-    let bold = std::iter::once("bold".into()).chain(fonts.families[&FontFamily::Proportional].clone()).collect();
+    let bold = std::iter::once("bold".into())
+        .chain(fonts.families[&FontFamily::Proportional].clone())
+        .collect();
     fonts.families.insert(FontFamily::Name("bold".into()), bold);
     cc.egui_ctx.set_fonts(fonts);
     // egui follows the system light/dark setting until the toolbar overrides it
@@ -1213,7 +1449,9 @@ fn main() {
     let log_args: Vec<String> = args.collect();
     let loading = std::thread::spawn(move || Repo::open(&dir, &log_args));
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_title("gr").with_inner_size([1600.0, 900.0]),
+        viewport: egui::ViewportBuilder::default()
+            .with_title("gr")
+            .with_inner_size([1600.0, 900.0]),
         ..Default::default()
     };
     let res = eframe::run_native(
@@ -1251,7 +1489,16 @@ mod tests {
                 .env("GIT_CONFIG_NOSYSTEM", "1")
                 .env("GIT_AUTHOR_DATE", &date)
                 .env("GIT_COMMITTER_DATE", &date)
-                .args(["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.com", "-c", "commit.gpgSign=false", "-c", "tag.gpgSign=false"])
+                .args([
+                    "-c",
+                    "user.name=Ada Lovelace",
+                    "-c",
+                    "user.email=ada@example.com",
+                    "-c",
+                    "commit.gpgSign=false",
+                    "-c",
+                    "tag.gpgSign=false",
+                ])
                 .args(args)
                 .status()
                 .unwrap()
@@ -1280,20 +1527,26 @@ mod tests {
         let repo = Repo::open(&dir, &[]).unwrap();
         // topic's only commit reviewed: its node, the ok label and the branch check
         let mut notes = repo.annotations().unwrap();
-        let topic = repo.commits.iter().position(|c| c.subject() == "lib: greet more than once").unwrap();
+        let topic =
+            repo.commits.iter().position(|c| c.subject() == "lib: greet more than once").unwrap();
         let topic_id = repo.commits[topic].id().to_string();
         notes.toggle(&topic_id, "ok").unwrap();
         let mut harness = Harness::builder()
             .with_size([1600.0, 470.0])
             .build_eframe(|cc| App::new(repo, None, init(cc, false), &cc.egui_ctx));
-        for (pref, name) in [(egui::ThemePreference::Light, "light"), (egui::ThemePreference::Dark, "dark")] {
+        for (pref, name) in
+            [(egui::ThemePreference::Light, "light"), (egui::ThemePreference::Dark, "dark")]
+        {
             harness.ctx.set_theme(pref);
             harness.run();
             harness.snapshot(name);
         }
         // word diff and syntax colours
         harness.state_mut().select(topic);
-        for (pref, name) in [(egui::ThemePreference::Light, "diff_light"), (egui::ThemePreference::Dark, "diff_dark")] {
+        for (pref, name) in [
+            (egui::ThemePreference::Light, "diff_light"),
+            (egui::ThemePreference::Dark, "diff_dark"),
+        ] {
             harness.ctx.set_theme(pref);
             harness.run();
             harness.snapshot(name);
