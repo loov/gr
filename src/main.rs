@@ -9,7 +9,7 @@ mod settings;
 mod theme;
 
 use egui_extras::{Column, TableBuilder};
-use gr::{Annotations, Details, Location, Locations, Field, Hit, History, Mode, Query, RefKind, Repo, Rgb, Seg, Visit, REMOTE_PREFIX};
+use gr::{Annotations, Details, Dir, Location, Locations, Field, Hit, History, Mode, Query, RefKind, Repo, Rgb, Seg, Visit, Wrap, REMOTE_PREFIX};
 
 const ROW_H: f32 = 18.0;
 /// Commit list rows hold two lines: subject, then committer and date.
@@ -197,14 +197,14 @@ impl App {
             file_hist: None,
             ctx: ctx.clone(),
         };
-        app.select(sel, true);
+        app.select(sel);
         // select clears the status, so report a bad gr.info after it
         app.status = status;
         app.carry_marks();
         app
     }
 
-    fn select(&mut self, row: usize, push: bool) {
+    fn select(&mut self, row: usize) {
         if self.repo.commits.is_empty() {
             return;
         }
@@ -216,9 +216,8 @@ impl App {
         self.status.clear();
         self.scroll_list = true;
         self.diff_goto = Some(0);
-        if push {
-            self.history.push(row);
-        }
+        // a no-op when revisiting the current history entry
+        self.history.push(row);
     }
 
     /// Shows `raw`, split side by side when `split` says so.
@@ -228,17 +227,17 @@ impl App {
         self.layout_w = 0.0;
     }
 
-    fn find(&mut self, forward: bool, wrap: bool) {
+    fn find(&mut self, dir: Dir, wrap: Wrap) {
         if let Some(q) = &self.query {
-            if let Some(r) = self.repo.find(q, Some(self.sel), forward, wrap) {
-                self.select(r, true);
+            if let Some(r) = self.repo.find(q, Some(self.sel), dir, wrap) {
+                self.select(r);
             }
         }
     }
 
     fn visit(&mut self, v: Option<Visit>) {
         if let Some(v) = v {
-            self.select(v.row, false);
+            self.select(v.row);
             self.diff_goto = Some(v.line as usize);
         }
     }
@@ -297,7 +296,7 @@ impl App {
                 self.repo = repo;
                 self.locs = self.repo.locations();
                 self.history = History::default();
-                self.select(row, true);
+                self.select(row);
                 match self.repo.annotations() {
                     Ok(n) => {
                         self.notes = n;
@@ -376,10 +375,10 @@ impl App {
             self.settings.open = true;
         }
         if cmd(Key::F) {
-            self.find(true, true);
+            self.find(Dir::Down, Wrap::Around);
         }
         if cmd(Key::G) {
-            self.find(true, false);
+            self.find(Dir::Down, Wrap::Stop);
         }
         let list_page = (self.list_h - LIST_H).max(LIST_H);
         if cmd(Key::Home) {
@@ -400,7 +399,7 @@ impl App {
             if cmd(k) {
                 let parent = self.repo.commits.get(self.sel).and_then(|c| c.parents().nth(n));
                 if let Some(r) = parent.and_then(|p| self.repo.index_of(p)) {
-                    self.select(r, true);
+                    self.select(r);
                 }
             }
         }
@@ -409,21 +408,21 @@ impl App {
         }
         let shift = |k| ctx.input(|i| i.key_pressed(k) && i.modifiers.shift_only());
         if shift(Key::ArrowUp) {
-            self.find(false, false);
+            self.find(Dir::Up, Wrap::Stop);
         } else if shift(Key::ArrowDown) {
-            self.find(true, false);
+            self.find(Dir::Down, Wrap::Stop);
         }
         let page = ((self.list_h / LIST_H) as usize).saturating_sub(1).max(1);
         let last = self.repo.commits.len().saturating_sub(1);
         let pressed = |k| ctx.input(|i| i.key_pressed(k) && i.modifiers.is_none());
         if pressed(Key::ArrowUp) {
-            self.select(self.sel.saturating_sub(1), true);
+            self.select(self.sel.saturating_sub(1));
         } else if pressed(Key::ArrowDown) {
-            self.select((self.sel + 1).min(last), true);
+            self.select((self.sel + 1).min(last));
         } else if pressed(Key::PageUp) {
-            self.select(self.sel.saturating_sub(page), true);
+            self.select(self.sel.saturating_sub(page));
         } else if pressed(Key::PageDown) {
-            self.select((self.sel + page).min(last), true);
+            self.select((self.sel + page).min(last));
         }
         if ctx.text_edit_focused() {
             return;
@@ -435,9 +434,9 @@ impl App {
         // keep the focusing keystroke out of the entry
         let drop_text = || ctx.input_mut(|i| i.events.retain(|e| !matches!(e, egui::Event::Text(_))));
         if pressed(Key::P) {
-            self.select(self.sel.saturating_sub(1), true);
+            self.select(self.sel.saturating_sub(1));
         } else if pressed(Key::N) {
-            self.select((self.sel + 1).min(last), true);
+            self.select((self.sel + 1).min(last));
         } else if pressed(Key::K) {
             self.toggle_note("ok");
         } else if pressed(Key::J) {
@@ -445,17 +444,17 @@ impl App {
         } else if pressed(Key::R) {
             self.reload();
         } else if pressed(Key::Home) {
-            self.select(0, true);
+            self.select(0);
         } else if pressed(Key::End) {
-            self.select(last, true);
+            self.select(last);
         } else if pressed(Key::ArrowLeft) || pressed(Key::Z) || pressed(Key::H) {
             self.back();
         } else if pressed(Key::ArrowRight) || pressed(Key::X) || pressed(Key::L) {
             self.forward();
         } else if pressed(Key::Enter) && !button {
-            self.find(true, true);
+            self.find(Dir::Down, Wrap::Around);
         } else if typed("?") {
-            self.find(false, true);
+            self.find(Dir::Up, Wrap::Around);
         } else if typed("/") {
             drop_text();
             ctx.memory_mut(|m| m.request_focus(Id::unique(FIND_EDIT)));
@@ -494,7 +493,7 @@ impl App {
         };
         let next = b.own.iter().filter(|o| !self.notes.has(o, "ok")).filter_map(|o| self.repo.index_of(o)).max();
         match next {
-            Some(row) => self.select(row, true),
+            Some(row) => self.select(row),
             None => self.status = format!("{} has no commits left to review", b.name),
         }
     }
@@ -531,7 +530,7 @@ impl App {
             let r = ui.add(TextEdit::singleline(&mut self.id_text).id(Id::unique(ID_EDIT)).font(egui::TextStyle::Monospace).desired_width(330.0)).labelled_by(label.id);
             if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
                 match self.repo.resolve(&self.id_text) {
-                    Ok(row) => self.select(row, true),
+                    Ok(row) => self.select(row),
                     Err(e) => self.status = e,
                 }
             }
@@ -575,10 +574,10 @@ impl App {
         ui.horizontal(|ui| {
             let find = ui.button("Find").clicked();
             if ui.button("↓").clicked() || find {
-                self.find(true, true);
+                self.find(Dir::Down, Wrap::Around);
             }
             if ui.button("↑").clicked() {
-                self.find(false, true);
+                self.find(Dir::Up, Wrap::Around);
             }
             let label = ui.label("commit containing:");
             let r = ui.add(TextEdit::singleline(&mut self.find_text).id(Id::unique(FIND_EDIT)).desired_width(300.0)).labelled_by(label.id);
@@ -586,7 +585,7 @@ impl App {
                 self.update_query();
             }
             if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
-                self.find(true, true);
+                self.find(Dir::Down, Wrap::Around);
                 r.request_focus();
             }
             let (mode, field) = (self.mode, self.field);
@@ -653,7 +652,7 @@ impl App {
         self.list_h = out.inner_rect.height();
         self.list_off = out.state.clamped_offset().y;
         if let Some(i) = clicked {
-            self.select(i, true);
+            self.select(i);
         }
     }
 
@@ -751,12 +750,12 @@ impl App {
         self.history.set_line(self.top_line() as f32);
         self.diff_h = out.inner_rect.height();
         if let Some(row) = link {
-            self.select(row, true);
+            self.select(row);
         }
         if let Some((i, line)) = origin {
             let file = self.details.files[self.details.file_at(i)].0.clone();
             match self.repo.origin(self.sel, &file, &line) {
-                Ok(row) => self.select(row, true),
+                Ok(row) => self.select(row),
                 Err(e) => self.status = e,
             }
         }
@@ -852,7 +851,7 @@ impl App {
         });
         if let Some(loc) = go {
             match self.repo.index_of(&loc.id) {
-                Some(row) => self.select(row, true),
+                Some(row) => self.select(row),
                 None => self.status = format!("{} is not in this view", loc.name),
             }
         }
@@ -869,7 +868,7 @@ impl App {
                 ui.selectable_value(&mut self.settings.split, m, m.name());
             }
             if opts != self.settings.diff {
-                self.select(self.sel, false);
+                self.select(self.sel);
             }
         });
     }
@@ -1111,7 +1110,7 @@ impl eframe::App for App {
             }
         });
         if self.settings.show(ui.ctx()) {
-            self.select(self.sel, false);
+            self.select(self.sel);
         }
         let frame = egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(12, 8));
         Panel::top("toolbar").frame(frame).show(ui, |ui| self.toolbar(ui));
@@ -1293,18 +1292,18 @@ mod tests {
             harness.snapshot(name);
         }
         // word diff and syntax colours
-        harness.state_mut().select(topic, true);
+        harness.state_mut().select(topic);
         for (pref, name) in [(egui::ThemePreference::Light, "diff_light"), (egui::ThemePreference::Dark, "diff_dark")] {
             harness.ctx.set_theme(pref);
             harness.run();
             harness.snapshot(name);
         }
         harness.state_mut().settings.split = settings::Split::On;
-        harness.state_mut().select(topic, true);
+        harness.state_mut().select(topic);
         harness.run();
         harness.snapshot("diff_split");
         harness.state_mut().settings.split = settings::Split::Off;
-        harness.state_mut().select(0, true);
+        harness.state_mut().select(0);
         harness.state_mut().settings.open = true;
         harness.ctx.set_theme(egui::ThemePreference::Dark);
         harness.set_size(egui::Vec2::new(1100.0, 760.0));

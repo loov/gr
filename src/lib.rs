@@ -18,7 +18,7 @@ use std::process::{Command, Stdio};
 
 pub use annotations::Annotations;
 pub use details::{DiffOpts, Details, Kind, Line, Style};
-pub use find::{Field, Hit, Mode, Query};
+pub use find::{Dir, Field, Hit, Mode, Query, Wrap};
 pub use graph::Seg;
 pub use locations::{Location, Locations};
 pub use watch::Watch;

@@ -4,6 +4,21 @@ use regex::{Regex, RegexBuilder};
 
 use crate::{Commit, Repo};
 
+/// Which way `Repo::find` moves through the list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Dir {
+    /// Towards older commits.
+    Down,
+    Up,
+}
+
+/// What `Repo::find` does past the end of the list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Wrap {
+    Around,
+    Stop,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Mode {
     #[default]
@@ -93,17 +108,18 @@ impl Query {
 
 impl Repo {
     /// Next matching row after `from` (or from the start/end when None),
-    /// downwards (older) when `forward`. Wraps around when `wrap`.
-    pub fn find(&self, q: &Query, from: Option<usize>, forward: bool, wrap: bool) -> Option<usize> {
+    /// in direction `dir`.
+    pub fn find(&self, q: &Query, from: Option<usize>, dir: Dir, wrap: Wrap) -> Option<usize> {
         let n = self.commits.len();
         if n == 0 {
             return None;
         }
         let n = n as isize;
+        let forward = dir == Dir::Down;
         let start = from.map(|f| f as isize).unwrap_or(if forward { -1 } else { n });
         (1..=n)
             .map(|k| if forward { start + k } else { start - k })
-            .take_while(|&r| wrap || (0..n).contains(&r))
+            .take_while(|&r| wrap == Wrap::Around || (0..n).contains(&r))
             .map(|r| r.rem_euclid(n) as usize)
             .find(|&r| q.hit(&self.commits[r]) != Hit::No)
     }
@@ -151,12 +167,12 @@ mod tests {
             heads: Default::default(),
         };
         let q = Query::new("hit", Mode::Exact, Field::All).unwrap().unwrap();
-        assert_eq!(repo.find(&q, Some(1), true, true), Some(3));
-        assert_eq!(repo.find(&q, Some(3), true, true), Some(1));
-        assert_eq!(repo.find(&q, Some(3), true, false), None);
-        assert_eq!(repo.find(&q, Some(3), false, false), Some(1));
-        assert_eq!(repo.find(&q, None, true, true), Some(1));
-        assert_eq!(repo.find(&q, None, true, false), Some(1));
-        assert_eq!(repo.find(&q, None, false, false), Some(3));
+        assert_eq!(repo.find(&q, Some(1), Dir::Down, Wrap::Around), Some(3));
+        assert_eq!(repo.find(&q, Some(3), Dir::Down, Wrap::Around), Some(1));
+        assert_eq!(repo.find(&q, Some(3), Dir::Down, Wrap::Stop), None);
+        assert_eq!(repo.find(&q, Some(3), Dir::Up, Wrap::Stop), Some(1));
+        assert_eq!(repo.find(&q, None, Dir::Down, Wrap::Around), Some(1));
+        assert_eq!(repo.find(&q, None, Dir::Down, Wrap::Stop), Some(1));
+        assert_eq!(repo.find(&q, None, Dir::Up, Wrap::Stop), Some(3));
     }
 }
