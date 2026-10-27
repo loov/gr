@@ -135,6 +135,8 @@ struct App {
     watch: gr::Watch,
     /// The keyboard shortcuts window is open.
     shortcuts: bool,
+    /// The file whose history is shown, and the log arguments before.
+    file_hist: Option<(String, Vec<String>)>,
     /// A reload running in the background.
     loading: Option<std::thread::JoinHandle<std::io::Result<Repo>>>,
     ctx: egui::Context,
@@ -182,6 +184,7 @@ impl App {
             watch,
             shortcuts: false,
             loading: None,
+            file_hist: None,
             ctx: ctx.clone(),
         };
         app.select(sel, true);
@@ -239,10 +242,30 @@ impl App {
 
     /// Starts reopening the repository; `poll_reload` takes the result.
     fn reload(&mut self) {
+        let job = self.repo.reopen();
+        self.load(job);
+    }
+
+    /// Shows only the commits that touched `file`, or everything again with None.
+    fn file_history(&mut self, file: Option<String>) {
+        let args = match (&file, self.file_hist.take()) {
+            (Some(f), prev) => {
+                let all = prev.map_or_else(|| self.repo.log_args().to_vec(), |(_, a)| a);
+                let args = Repo::file_history_args(&all, f);
+                self.file_hist = Some((f.clone(), all));
+                args
+            }
+            (None, Some((_, all))) => all,
+            (None, None) => return,
+        };
+        let job = self.repo.reopen_with(args);
+        self.load(job);
+    }
+
+    fn load(&mut self, job: impl FnOnce() -> std::io::Result<Repo> + Send + 'static) {
         if self.loading.is_some() {
             return;
         }
-        let job = self.repo.reopen();
         let ctx = self.ctx.clone();
         self.loading = Some(std::thread::spawn(move || {
             let r = job();
@@ -513,6 +536,13 @@ impl App {
             if self.job.is_some() || self.loading.is_some() {
                 ui.spinner();
             }
+            if let Some((file, _)) = &self.file_hist {
+                ui.label(RichText::new(format!("History of {file}")).strong());
+                if ui.button("Show All").clicked() {
+                    self.file_history(None);
+                }
+                ui.separator();
+            }
             self.id_bar(ui);
             ui.separator();
             self.find_bar(ui);
@@ -634,28 +664,36 @@ impl App {
         }
         ui.spacing_mut().item_spacing.y = 0.0;
         let mut link = None;
+        let mut origin = None;
         let lines = &self.details.lines;
         let content_w = (self.max_cols as f32 * char_w).max(2.0 * self.half_cols as f32 * char_w + 8.0) + 8.0;
         let out = sa.show_rows(ui, ROW_H, lines.len(), |ui, range| {
             let w = content_w.max(ui.available_width());
-            for line in &lines[range] {
+            for (i, line) in lines.iter().enumerate().take(range.end).skip(range.start) {
                 let (rect, _) = ui.allocate_exact_size(Vec2::new(w, ROW_H), Sense::hover());
-                let resp = match &line.right {
-                    None => draw_line(ui, rect, line, char_w),
+                // a column per side: its rect and line
+                let cols: Vec<(Rect, &gr::Line)> = match &line.right {
+                    None => vec![(rect, line)],
                     Some(right) => {
-                        // each half its own column, the left cut at the middle
                         let mid = rect.left() + w / 2.0;
-                        let (l, r) = (Rect::from_x_y_ranges(rect.left()..=mid, rect.y_range()), Rect::from_x_y_ranges(mid..=rect.right(), rect.y_range()));
-                        let resp = draw_line(&mut ui.new_child(egui::UiBuilder::new().max_rect(l)), l, line, char_w);
-                        draw_line(&mut ui.new_child(egui::UiBuilder::new().max_rect(r)), r, right, char_w);
-                        ui.painter().vline(mid, rect.y_range(), ui.visuals().widgets.noninteractive.bg_stroke);
-                        resp
+                        vec![(Rect::from_x_y_ranges(rect.left()..=mid, rect.y_range()), line), (Rect::from_x_y_ranges(mid..=rect.right(), rect.y_range()), &**right)]
                     }
                 };
-                if let Some(row) = line.link {
-                    if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                        link = Some(row);
+                for (side, (r, l)) in cols.into_iter().enumerate() {
+                    // under the label, so text selection still works on the text
+                    let under = ui.interact(r, ui.scope_id().with(("diff line", i, side)), Sense::click());
+                    let resp = draw_line(&mut ui.new_child(egui::UiBuilder::new().max_rect(r)), r, l, char_w);
+                    if origin_menu(&under, l) || origin_menu(&resp, l) {
+                        origin = Some((i, l.clone()));
                     }
+                    if let Some(row) = l.link {
+                        if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                            link = Some(row);
+                        }
+                    }
+                }
+                if line.right.is_some() {
+                    ui.painter().vline(rect.left() + w / 2.0, rect.y_range(), ui.visuals().widgets.noninteractive.bg_stroke);
                 }
             }
         });
@@ -665,12 +703,20 @@ impl App {
         if let Some(row) = link {
             self.select(row, true);
         }
+        if let Some((i, line)) = origin {
+            let file = self.details.files[self.details.file_at(i)].0.clone();
+            match self.repo.origin(self.sel, &file, &line) {
+                Ok(row) => self.select(row, true),
+                Err(e) => self.status = e,
+            }
+        }
     }
 
     /// The file list, floating over the top-right corner of the diff in `diff`.
     fn file_list(&mut self, ctx: &egui::Context, diff: Rect) {
         let cur = self.details.file_at(self.top_line());
         let mut jump = None;
+        let mut hist = None;
         let files = &self.details.files;
         if files.is_empty() {
             return;
@@ -704,12 +750,23 @@ impl App {
                         if resp.clicked() {
                             jump = Some(*line);
                         }
+                        if i > 0 {
+                            resp.context_menu(|ui| {
+                                if ui.button("Show History of This File").clicked() {
+                                    hist = Some(name.clone());
+                                    ui.close();
+                                }
+                            });
+                        }
                     }
                 });
             });
         });
         if let Some(line) = jump {
             self.scroll_diff(line as f32 * ROW_H);
+        }
+        if hist.is_some() {
+            self.file_history(hist);
         }
     }
 
@@ -785,6 +842,20 @@ fn location_tree(ui: &mut egui::Ui, salt: &str, list: &[Location], depth: usize,
         });
         i += n;
     }
+}
+
+/// Offers "Show Origin of This Line" on a code line; true when picked.
+fn origin_menu(resp: &egui::Response, line: &gr::Line) -> bool {
+    let mut picked = false;
+    if line.old > 0 || line.new > 0 {
+        resp.context_menu(|ui| {
+            if ui.button("Show Origin of This Line").clicked() {
+                picked = true;
+                ui.close();
+            }
+        });
+    }
+    picked
 }
 
 /// Paints `line` into `rect`: background, changed words, then its text as

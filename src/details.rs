@@ -58,6 +58,10 @@ pub struct Line {
     pub syntax: Vec<(usize, usize, Rgb)>,
     /// In a side-by-side diff, the right column's line; None spans both.
     pub right: Option<Box<Line>>,
+    /// Line numbers in the old and new file, 0 where the line is not in
+    /// that side; only for lines of a diff against one parent.
+    pub old: u32,
+    pub new: u32,
 }
 
 #[derive(Default)]
@@ -81,6 +85,8 @@ impl Details {
             changed: vec![],
             syntax: vec![],
             right: None,
+            old: 0,
+            new: 0,
         };
         let code: Vec<Option<Kind>> =
             self.lines.iter().map(|l| (!l.merge && matches!(l.kind, Kind::Context | Kind::Add | Kind::Del)).then_some(l.kind)).collect();
@@ -186,7 +192,7 @@ impl Builder {
         self.push_styled(text.into(), kind, style_for(kind, false, None), None);
     }
     fn push_styled(&mut self, text: String, kind: Kind, style: Style, link: Option<usize>) {
-        self.lines.push(Line { text, kind, style, link, merge: false, changed: vec![], syntax: vec![], right: None });
+        self.lines.push(Line { text, kind, style, link, merge: false, changed: vec![], syntax: vec![], right: None, old: 0, new: 0 });
     }
     fn link(&mut self, text: String, row: Option<usize>) {
         let kind = if row.is_some() { Kind::Link } else { Kind::Plain };
@@ -279,6 +285,8 @@ fn submodule_name(rest: &str) -> &str {
 fn parse_diff(b: &mut Builder, diff: &str) {
     let mut in_hdr = false;
     let mut nparents = 1usize;
+    // next old and new line numbers in a single-parent hunk
+    let (mut old, mut new) = (0u32, 0u32);
     let mut submodule = String::new();
     for line in diff.lines() {
         if let Some(rest) = line.strip_prefix("Submodule ") {
@@ -309,6 +317,12 @@ fn parse_diff(b: &mut Builder, diff: &str) {
         } else if line.starts_with("@@") {
             nparents = line.bytes().take_while(|&c| c == b'@').count().saturating_sub(1).max(1);
             in_hdr = false;
+            // "@@ -12,3 +14,5 @@"
+            let start = |sign: char| -> u32 {
+                let f = line.split(' ').find_map(|w| w.strip_prefix(sign)).unwrap_or("0");
+                f.split(',').next().and_then(|n| n.parse().ok()).unwrap_or(0)
+            };
+            (old, new) = (start('-'), start('+'));
             b.push(line, Kind::Hunk);
         } else if in_hdr {
             if let Some(n) = line.strip_prefix("rename to ").or_else(|| line.strip_prefix("copy to ")) {
@@ -339,7 +353,18 @@ fn parse_diff(b: &mut Builder, diff: &str) {
                     (Kind::Context, None)
                 };
                 b.push_styled(text, kind, style_for(kind, merge, parent), None);
-                b.lines.last_mut().unwrap().merge = merge;
+                let l = b.lines.last_mut().unwrap();
+                l.merge = merge;
+                if !merge {
+                    if kind != Kind::Add {
+                        l.old = old;
+                        old += 1;
+                    }
+                    if kind != Kind::Del {
+                        l.new = new;
+                        new += 1;
+                    }
+                }
             } else {
                 // "\ No newline at end of file", submodule summaries, ...
                 b.push(text, Kind::Hunk);

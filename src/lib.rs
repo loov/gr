@@ -411,8 +411,44 @@ impl Repo {
 
     /// A job that opens this repository again, to run on another thread.
     pub fn reopen(&self) -> impl FnOnce() -> io::Result<Repo> + Send + 'static {
-        let (cwd, args) = (self.cwd.clone(), self.log_args.clone());
-        move || Repo::open(&cwd, &args)
+        self.reopen_with(self.log_args.clone())
+    }
+
+    /// Like `reopen`, with other `git log` arguments.
+    pub fn reopen_with(&self, log_args: Vec<String>) -> impl FnOnce() -> io::Result<Repo> + Send + 'static {
+        let cwd = self.cwd.clone();
+        move || Repo::open(&cwd, &log_args)
+    }
+
+    pub fn log_args(&self) -> &[String] {
+        &self.log_args
+    }
+
+    /// The log arguments for the history of `file` (from the top of the
+    /// work tree), keeping the revisions of `log_args`.
+    pub fn file_history_args(log_args: &[String], file: &str) -> Vec<String> {
+        let revs = log_args.iter().take_while(|a| *a != "--").cloned();
+        revs.chain(["--".to_string(), format!(":(top){file}")]).collect()
+    }
+
+    /// The row of the commit that last changed `line` of `file` in the diff
+    /// of `row`: `git blame` of the line's new side, or of the parent's side
+    /// for a removed line.
+    pub fn origin(&self, row: usize, file: &str, line: &Line) -> Result<usize, String> {
+        let c = &self.commits[row];
+        let (rev, n) = match (line.kind, c.id()) {
+            (_, _) if line.old == 0 && line.new == 0 => return Err("no line numbers in this diff".into()),
+            (Kind::Add, UNCOMMITTED_ID | INDEX_ID) => return Err("the line is not committed yet".into()),
+            // the old side of the work tree and index diffs, near enough
+            (_, UNCOMMITTED_ID | INDEX_ID) => ("HEAD".to_string(), line.old),
+            (Kind::Del, id) => (format!("{id}^"), line.old),
+            (_, id) => (id.to_string(), line.new),
+        };
+        let range = format!("{n},{n}");
+        // blame takes a plain path, not :(top), so run it from the top
+        let out = git(&self.dir, &["blame", "--porcelain", "-L", &range, &rev, "--", file]).map_err(|e| e.to_string())?;
+        let id = out.split(' ').next().unwrap_or("");
+        self.index_of(id).ok_or_else(|| format!("{} is not in this view", id.get(..12).unwrap_or(id)))
     }
 
     /// The row in `repo`, a reloaded copy of this one, to select in place of
@@ -962,6 +998,47 @@ mod tests {
         assert_eq!(repo.carry_tag(&mut notes, "ok", &own).unwrap(), 1);
         assert!(notes.has(&new, "ok") && !notes.has(&old, "ok"));
         assert_eq!(repo.carry_tag(&mut notes, "ok", &own).unwrap(), 0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn origin_and_file_history() {
+        let dir = std::env::temp_dir().join(format!("gr-origin-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        let sh = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .current_dir(&dir)
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgSign=false"])
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "{args:?}");
+        };
+        sh(&["init", "-q", "-b", "main"]);
+        std::fs::write(dir.join("x"), "one\ntwo\n").unwrap();
+        sh(&["add", "x"]);
+        sh(&["commit", "-q", "-m", "a"]);
+        std::fs::write(dir.join("x"), "one\nTWO\n").unwrap();
+        sh(&["commit", "-q", "-am", "b"]);
+        std::fs::write(dir.join("y"), "y\n").unwrap();
+        sh(&["add", "y"]);
+        sh(&["commit", "-q", "-m", "c"]);
+        // from a subdirectory, so paths must count from the top
+        let repo = Repo::open(dir.join("sub"), &[]).unwrap();
+        let row = |s: &str| repo.commits.iter().position(|c| c.subject() == s).unwrap();
+        let d = repo.details(row("b"), &DiffOpts::default());
+        let line = |t: &str| d.lines.iter().find(|l| l.text == t).unwrap();
+        assert_eq!(repo.origin(row("b"), "x", line(" one")), Ok(row("a")));
+        assert_eq!(repo.origin(row("b"), "x", line("-two")), Ok(row("a")));
+        assert_eq!(repo.origin(row("b"), "x", line("+TWO")), Ok(row("b")));
+
+        let hist = Repo::open(dir.join("sub"), &Repo::file_history_args(&[], "x")).unwrap();
+        let subjects: Vec<&str> = hist.commits.iter().map(|c| c.subject()).collect();
+        assert_eq!(subjects, ["b", "a"]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
