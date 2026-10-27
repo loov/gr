@@ -905,7 +905,8 @@ mod tests {
             args.extend(base.iter().map(String::as_str));
             let mut want: Vec<String> = git(&repo.dir, &args).unwrap().lines().map(String::from).collect();
             let mut got = b.own.clone();
-            (want.sort(), got.sort());
+            want.sort();
+            got.sort();
             assert_eq!(got, want, "{}", b.name);
         }
     }

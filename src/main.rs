@@ -791,7 +791,7 @@ impl App {
                 };
                 CollapsingHeader::new(RichText::new(format!("{title} ({n})")).strong()).default_open(open).show(ui, |ui| {
                     if nest {
-                        location_tree(ui, title, list, 0, title == "BRANCHES", cur, notes, &mut go);
+                        location_tree(ui, title, list, 0, title == "BRANCHES", (cur, notes), &mut go);
                     } else {
                         for loc in list.iter() {
                             location_row(ui, &loc.name, loc, cur, notes, &mut go);
@@ -823,7 +823,9 @@ impl App {
 }
 
 /// Rows of `list` (sorted by name) nested on the '/'-separated segment at `depth`.
-fn location_tree(ui: &mut egui::Ui, salt: &str, list: &[Location], depth: usize, open: bool, cur: &str, notes: &Annotations, go: &mut Option<Location>) {
+/// `at` is the selected commit's id and the review marks.
+fn location_tree(ui: &mut egui::Ui, salt: &str, list: &[Location], depth: usize, open: bool, at: (&str, &Annotations), go: &mut Option<Location>) {
+    let (cur, notes) = at;
     let seg = |l: &Location| l.name.split('/').nth(depth).unwrap_or("").to_string();
     let leaf = |l: &Location| l.name.split('/').count() == depth + 1;
     let mut i = 0;
@@ -838,7 +840,7 @@ fn location_tree(ui: &mut egui::Ui, salt: &str, list: &[Location], depth: usize,
         let n = list[i..].iter().take_while(|l| !leaf(l) && seg(l) == s).count();
         let path = list[i].name.split('/').take(depth + 1).collect::<Vec<_>>().join("/");
         CollapsingHeader::new(&s).id_salt((salt, &path)).default_open(open).show(ui, |ui| {
-            location_tree(ui, salt, &list[i..i + n], depth + 1, open, cur, notes, go);
+            location_tree(ui, salt, &list[i..i + n], depth + 1, open, at, go);
         });
         i += n;
     }

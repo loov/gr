@@ -33,9 +33,12 @@ pub fn word_diff(lines: &mut [Line]) {
     }
 }
 
+/// Char ranges of a line.
+type Ranges = Vec<(usize, usize)>;
+
 /// Char ranges, past the one-char prefix, that differ between `a` and `b`
 /// by words. None when the lines share too little for that to help.
-fn changed_words(a: &str, b: &str) -> Option<(Vec<(usize, usize)>, Vec<(usize, usize)>)> {
+fn changed_words(a: &str, b: &str) -> Option<(Ranges, Ranges)> {
     let (ta, tb) = (tokens(a, 1), tokens(b, 1));
     // ponytail: quadratic LCS, so long lines are skipped; Myers diff if they matter
     if ta.len() * tb.len() > 40_000 {
