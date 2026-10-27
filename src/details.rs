@@ -8,11 +8,13 @@ pub struct DiffOpts {
     pub words: bool,
     /// Colour keywords, strings, comments and numbers.
     pub syntax: bool,
+    /// Removed lines on the left, added ones on the right.
+    pub split: bool,
 }
 
 impl Default for DiffOpts {
     fn default() -> Self {
-        DiffOpts { context: 3, ignore_space: false, words: true, syntax: true }
+        DiffOpts { context: 3, ignore_space: false, words: true, syntax: true, split: false }
     }
 }
 
@@ -54,6 +56,8 @@ pub struct Line {
     pub changed: Vec<(usize, usize)>,
     /// Char ranges coloured by syntax.
     pub syntax: Vec<(usize, usize, Rgb)>,
+    /// In a side-by-side diff, the right column's line; None spans both.
+    pub right: Option<Box<Line>>,
 }
 
 #[derive(Default)]
@@ -64,6 +68,57 @@ pub struct Details {
 }
 
 impl Details {
+    /// Side by side: each removed line next to the added line it pairs with,
+    /// a blank where one side has none, unchanged lines on both sides, and
+    /// headers and merge diffs across both.
+    pub fn split(self) -> Details {
+        let blank = || Line {
+            text: String::new(),
+            kind: Kind::Plain,
+            style: plain(),
+            link: None,
+            merge: false,
+            changed: vec![],
+            syntax: vec![],
+            right: None,
+        };
+        let code: Vec<Option<Kind>> =
+            self.lines.iter().map(|l| (!l.merge && matches!(l.kind, Kind::Context | Kind::Add | Kind::Del)).then_some(l.kind)).collect();
+        let n = self.lines.len();
+        let mut lines: Vec<Option<Line>> = self.lines.into_iter().map(Some).collect();
+        // row of each old line, for the file positions
+        let mut row_of = vec![0; n + 1];
+        let mut out: Vec<Line> = vec![];
+        let mut i = 0;
+        while i < n {
+            let run = |from: usize, k: Kind| code[from..].iter().take_while(|c| **c == Some(k)).count();
+            let (dels, adds) = match code[i] {
+                Some(Kind::Del) => (run(i, Kind::Del), run(i + run(i, Kind::Del), Kind::Add)),
+                Some(Kind::Add) => (0, run(i, Kind::Add)),
+                _ => {
+                    row_of[i] = out.len();
+                    let mut l = lines[i].take().unwrap();
+                    if code[i] == Some(Kind::Context) {
+                        l.right = Some(Box::new(l.clone()));
+                    }
+                    out.push(l);
+                    i += 1;
+                    continue;
+                }
+            };
+            for k in 0..dels.max(adds) {
+                let mut left = if k < dels { row_of[i + k] = out.len(); lines[i + k].take().unwrap() } else { blank() };
+                let right = if k < adds { row_of[i + dels + k] = out.len(); lines[i + dels + k].take().unwrap() } else { blank() };
+                left.right = Some(Box::new(right));
+                out.push(left);
+            }
+            i += dels + adds;
+        }
+        row_of[n] = out.len();
+        let files = self.files.into_iter().map(|(name, l)| (name, row_of[l])).collect();
+        Details { lines: out, files }
+    }
+
     /// Index into `files` of the file shown at `line` (for scroll sync).
     pub fn file_at(&self, line: usize) -> usize {
         self.files.iter().rposition(|(_, l)| *l <= line).unwrap_or(0)
@@ -131,7 +186,7 @@ impl Builder {
         self.push_styled(text.into(), kind, style_for(kind, false, None), None);
     }
     fn push_styled(&mut self, text: String, kind: Kind, style: Style, link: Option<usize>) {
-        self.lines.push(Line { text, kind, style, link, merge: false, changed: vec![], syntax: vec![] });
+        self.lines.push(Line { text, kind, style, link, merge: false, changed: vec![], syntax: vec![], right: None });
     }
     fn link(&mut self, text: String, row: Option<usize>) {
         let kind = if row.is_some() { Kind::Link } else { Kind::Plain };
@@ -341,7 +396,8 @@ impl Repo {
         if opts.syntax {
             decorate::syntax(&mut b.lines, &b.files);
         }
-        Details { lines: b.lines, files: b.files }
+        let d = Details { lines: b.lines, files: b.files };
+        if opts.split { d.split() } else { d }
     }
 
     /// Author, parents, children, branches, tags and the message.
@@ -450,6 +506,29 @@ fn list(names: &[&str]) -> (String, usize) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn split_pairs_lines() {
+        let mut b = Builder { lines: vec![], files: vec![("Comments".into(), 0)] };
+        b.start_file("f");
+        for (t, k) in [("@@", Kind::Hunk), (" a", Kind::Context), ("-b", Kind::Del), ("-c", Kind::Del), ("+B", Kind::Add), (" d", Kind::Context), ("+e", Kind::Add)] {
+            b.push(t, k);
+        }
+        let d = Details { lines: b.lines, files: b.files }.split();
+        let rows: Vec<(String, Option<String>)> = d.lines.iter().map(|l| (l.text.clone(), l.right.as_ref().map(|r| r.text.clone()))).collect();
+        let s = |a: &str, b: Option<&str>| (a.to_string(), b.map(String::from));
+        assert_eq!(rows, [
+            s("", None),
+            s(&Builder::file_sep("f"), None),
+            s("@@", None),
+            s(" a", Some(" a")),
+            s("-b", Some("+B")),
+            s("-c", Some("")),
+            s(" d", Some(" d")),
+            s("", Some("+e")),
+        ]);
+        assert_eq!(d.files, [("Comments".to_string(), 0), ("f".to_string(), 1)]);
+    }
+
     use super::*;
 
     fn build(diff: &str) -> Builder {

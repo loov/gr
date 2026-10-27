@@ -39,6 +39,7 @@ impl Settings {
         diff.ignore_space = flag("ignore_space", diff.ignore_space);
         diff.words = flag("word_diff", diff.words);
         diff.syntax = flag("syntax", diff.syntax);
+        diff.split = flag("side_by_side", diff.split);
         Settings {
             open: false,
             query: String::new(),
@@ -57,6 +58,7 @@ impl Settings {
         storage.set_string("ignore_space", self.diff.ignore_space.to_string());
         storage.set_string("word_diff", self.diff.words.to_string());
         storage.set_string("syntax", self.diff.syntax.to_string());
+        storage.set_string("side_by_side", self.diff.split.to_string());
     }
 
     /// Draws the window while open; returns whether the diff options changed.
@@ -182,7 +184,8 @@ impl Settings {
         const WORDS: (&str, &str) = ("Word Diff", "Mark the words that changed between a removed line and the added line after it.");
         const SYNTAX: (&str, &str) = ("Syntax Highlighting", "Colour keywords, strings, comments and numbers, by the file's extension.");
         let section = hit("Diff");
-        let rows = [CONTEXT, SPACE, WORDS, SYNTAX].map(|r| section || hit(r.0) || hit(r.1));
+        const SPLIT: (&str, &str) = ("Side by Side", "Removed lines on the left, added ones on the right. Also in the bar under the diff.");
+        let rows = [CONTEXT, SPACE, WORDS, SYNTAX, SPLIT].map(|r| section || hit(r.0) || hit(r.1));
         if rows.contains(&true) {
             heading(ui, "Diff", &mut self.jump);
             ui.add_space(8.0);
@@ -197,6 +200,9 @@ impl Settings {
             }
             if rows[3] {
                 row(ui, SYNTAX, |ui| Some(ui.checkbox(&mut self.diff.syntax, "")));
+            }
+            if rows[4] {
+                row(ui, SPLIT, |ui| Some(ui.checkbox(&mut self.diff.split, "")));
             }
         }
 

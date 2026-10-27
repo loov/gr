@@ -126,6 +126,7 @@ struct App {
     list_off: f32,
     list_scroll: Option<f32>,
     max_cols: usize,
+    half_cols: usize,
     /// A git command from the Git menu, running in the background.
     job: Option<std::thread::JoinHandle<Result<(), String>>>,
     /// The OS menu bar; None where the menu is drawn with egui.
@@ -174,6 +175,7 @@ impl App {
             list_off: 0.0,
             list_scroll: None,
             max_cols: 0,
+            half_cols: 0,
             job: None,
             native,
             settings,
@@ -196,7 +198,11 @@ impl App {
         let row = row.min(self.repo.commits.len() - 1);
         self.sel = row;
         self.details = self.repo.details(row, &self.settings.diff);
-        self.max_cols = self.details.lines.iter().map(|l| l.text.chars().count()).max().unwrap_or(0);
+        // full-width lines, and the wider half of side-by-side ones
+        let lines = &self.details.lines;
+        let len = |l: &gr::Line| l.text.chars().count();
+        self.max_cols = lines.iter().filter(|l| l.right.is_none()).map(len).max().unwrap_or(0);
+        self.half_cols = lines.iter().filter_map(|l| Some(len(l).max(len(l.right.as_ref()?)))).max().unwrap_or(0);
         self.id_text = self.repo.commits[row].id().to_string();
         self.status.clear();
         self.scroll_list = true;
@@ -629,31 +635,24 @@ impl App {
         ui.spacing_mut().item_spacing.y = 0.0;
         let mut link = None;
         let lines = &self.details.lines;
-        let content_w = self.max_cols as f32 * char_w + 8.0;
+        let content_w = (self.max_cols as f32 * char_w).max(2.0 * self.half_cols as f32 * char_w + 8.0) + 8.0;
         let out = sa.show_rows(ui, ROW_H, lines.len(), |ui, range| {
             let w = content_w.max(ui.available_width());
             for line in &lines[range] {
                 let (rect, _) = ui.allocate_exact_size(Vec2::new(w, ROW_H), Sense::hover());
-                let fg = fg(ui, line.style.fg);
-                if let Some(bg_c) = line.style.bg {
-                    let bg = bg(ui, bg_c);
-                    ui.painter().rect_filled(rect, 0.0, bg);
-                    // the changed words in a deeper shade of the line's colour
-                    for &(s, e) in &line.changed {
-                        let x = |c: usize| rect.left() + 4.0 + c as f32 * char_w;
-                        ui.painter().rect_filled(Rect::from_x_y_ranges(x(s)..=x(e), rect.y_range()), 2.0, bg.lerp_to_gamma(fg, 0.25));
+                let resp = match &line.right {
+                    None => draw_line(ui, rect, line, char_w),
+                    Some(right) => {
+                        // each half its own column, the left cut at the middle
+                        let mid = rect.left() + w / 2.0;
+                        let (l, r) = (Rect::from_x_y_ranges(rect.left()..=mid, rect.y_range()), Rect::from_x_y_ranges(mid..=rect.right(), rect.y_range()));
+                        let resp = draw_line(&mut ui.new_child(egui::UiBuilder::new().max_rect(l)), l, line, char_w);
+                        draw_line(&mut ui.new_child(egui::UiBuilder::new().max_rect(r)), r, right, char_w);
+                        ui.painter().vline(mid, rect.y_range(), ui.visuals().widgets.noninteractive.bg_stroke);
+                        resp
                     }
-                }
-                let g = line_galley(ui, line, fg);
-                let tw = g.size().x;
-                // a selectable label, so text can be selected across lines and copied
-                let text_rect = Rect::from_center_size(Pos2::new(rect.left() + 4.0 + tw / 2.0, rect.center().y), g.size());
-                // a child ui, unlike ui.put, leaves the row cursor alone; put
-                // moved it up to the label's bottom and the rows overlapped
-                let resp = ui.new_child(egui::UiBuilder::new().max_rect(text_rect)).add(egui::Label::new(g).selectable(true));
+                };
                 if let Some(row) = line.link {
-                    let y = rect.center().y + 7.0;
-                    ui.painter().hline(rect.left() + 4.0..=rect.left() + 4.0 + tw, y, Stroke::new(1.0, fg));
                     if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                         link = Some(row);
                     }
@@ -758,6 +757,7 @@ impl App {
             let label = ui.label("Lines of context:");
             ui.add(egui::DragValue::new(&mut self.settings.diff.context).range(0..=1000)).labelled_by(label.id);
             ui.checkbox(&mut self.settings.diff.ignore_space, "Ignore space change");
+            ui.checkbox(&mut self.settings.diff.split, "Side by side");
             if opts != self.settings.diff {
                 self.select(self.sel, false);
             }
@@ -785,6 +785,33 @@ fn location_tree(ui: &mut egui::Ui, salt: &str, list: &[Location], depth: usize,
         });
         i += n;
     }
+}
+
+/// Paints `line` into `rect`: background, changed words, then its text as
+/// a selectable label, so text can be selected across lines and copied.
+fn draw_line(ui: &mut egui::Ui, rect: Rect, line: &gr::Line, char_w: f32) -> egui::Response {
+    let fg = fg(ui, line.style.fg);
+    let p = ui.painter().with_clip_rect(rect);
+    if let Some(bg_c) = line.style.bg {
+        let bg = bg(ui, bg_c);
+        p.rect_filled(rect, 0.0, bg);
+        // the changed words in a deeper shade of the line's colour
+        for &(s, e) in &line.changed {
+            let x = |c: usize| rect.left() + 4.0 + c as f32 * char_w;
+            p.rect_filled(Rect::from_x_y_ranges(x(s)..=x(e), rect.y_range()), 2.0, bg.lerp_to_gamma(fg, 0.25));
+        }
+    }
+    let g = line_galley(ui, line, fg);
+    let tw = g.size().x;
+    if line.link.is_some() {
+        p.hline(rect.left() + 4.0..=rect.left() + 4.0 + tw, rect.center().y + 7.0, Stroke::new(1.0, fg));
+    }
+    let text_rect = Rect::from_center_size(Pos2::new(rect.left() + 4.0 + tw / 2.0, rect.center().y), g.size());
+    // a child ui, unlike ui.put, leaves the row cursor alone; put
+    // moved it up to the label's bottom and the rows overlapped
+    let mut text = ui.new_child(egui::UiBuilder::new().max_rect(text_rect));
+    text.set_clip_rect(rect.intersect(ui.clip_rect()));
+    text.add(egui::Label::new(g).selectable(true))
 }
 
 /// A diff line's text in `fg`, with its syntax colours.
@@ -1136,6 +1163,11 @@ mod tests {
             harness.run();
             harness.snapshot(name);
         }
+        harness.state_mut().settings.diff.split = true;
+        harness.state_mut().select(topic, true);
+        harness.run();
+        harness.snapshot("diff_split");
+        harness.state_mut().settings.diff.split = false;
         harness.state_mut().select(0, true);
         harness.state_mut().settings.open = true;
         harness.ctx.set_theme(egui::ThemePreference::Dark);
