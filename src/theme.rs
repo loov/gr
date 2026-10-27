@@ -7,8 +7,8 @@ use std::sync::Arc;
 use eframe::egui::{self, Color32, Id, Stroke, Visuals};
 use gr::Rgb;
 
-pub const DEFAULT_LIGHT: &str = "Gruvbox Light";
-pub const DEFAULT_DARK: &str = "Gruvbox Dark";
+pub const DEFAULT_LIGHT: &str = "GitHub Light Default";
+pub const DEFAULT_DARK: &str = "GitHub Dark Default";
 
 /// "theme = <name>" lines, each followed by that theme's lines.
 const THEMES: &str = include_str!("../themes/themes.txt");
@@ -168,8 +168,8 @@ mod tests {
         let dark = find(DEFAULT_DARK).unwrap();
         let light = find(DEFAULT_LIGHT).unwrap();
         assert!(dark.is_dark() && !light.is_dark());
-        assert_eq!(dark.map([0, 0, 255]), Some(Color32::from_rgb(0x45, 0x85, 0x88)));
-        assert_eq!(light.bg, Color32::from_rgb(0xfb, 0xf1, 0xc7));
+        assert_eq!(dark.map([0, 0, 255]), Some(Color32::from_rgb(0x58, 0xa6, 0xff)));
+        assert_eq!(light.bg, Color32::WHITE);
         assert_eq!(all().len(), THEMES.matches("theme = ").count());
     }
 }
