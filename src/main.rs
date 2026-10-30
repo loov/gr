@@ -82,6 +82,7 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
             ("→ x l", "forward in the visit history"),
             ("Cmd+1 … Cmd+9", "go to the first … ninth parent"),
             ("g", "type a commit id, branch or tag to go to"),
+            ("Cmd+click a branch or tag", "copy its name"),
             ("Cmd+↑ Cmd+↓", "scroll the list by a commit"),
             ("Cmd+PageUp Cmd+PageDown", "scroll the list by a page"),
             ("Cmd+Home Cmd+End", "scroll the list to the top, bottom"),
@@ -729,8 +730,9 @@ impl App {
                 let c = &repo.commits[i];
                 let hit = query.as_ref().map_or(Hit::No, |q| q.hit(c));
                 row.set_selected(i == sel);
+                let mut label = None;
                 row.col(|ui| {
-                    draw_commit_cell(
+                    label = draw_commit_cell(
                         ui,
                         c,
                         &repo.segs(i),
@@ -740,8 +742,12 @@ impl App {
                         now,
                     )
                 });
-                if row.response().clicked() {
-                    clicked = Some(i);
+                let resp = row.response();
+                if resp.clicked() {
+                    match label.filter(|_| resp.ctx.input(|i| i.modifiers.command)) {
+                        Some(name) => resp.ctx.copy_text(name.to_string()),
+                        None => clicked = Some(i),
+                    }
                 }
             });
         });
@@ -1193,7 +1199,10 @@ fn location_row(
         g,
         text,
     );
-    if resp.on_hover_text(&loc.name).clicked() && !loc.id.is_empty() {
+    let resp = resp.on_hover_text(&loc.name);
+    if resp.clicked() && resp.ctx.input(|i| i.modifiers.command) {
+        resp.ctx.copy_text(loc.name.clone());
+    } else if resp.clicked() && !loc.id.is_empty() {
         *go = Some(loc.clone());
     }
 }
@@ -1201,15 +1210,16 @@ fn location_row(
 /// A commit list row: graph, refs and subject on the first line;
 /// committer and short date on the second.
 /// `done` names the branches whose own commits are all ok; their labels get a ✓.
-fn draw_commit_cell(
+/// Returns the name of the ref label under the pointer.
+fn draw_commit_cell<'a>(
     ui: &mut egui::Ui,
-    c: &gr::Commit,
+    c: &'a gr::Commit,
     segs: &[Seg],
     bold: bool,
     ok: bool,
     done: &std::collections::HashSet<&str>,
     now: i64,
-) {
+) -> Option<&'a str> {
     let rect = ui.max_rect();
     let p = ui.painter();
     let text = ui.visuals().text_color();
@@ -1231,6 +1241,7 @@ fn draw_commit_cell(
     let text_x = x0 + c.width.max(1) as f32 * LANE_W - LANE_W / 2.0 + 6.0;
     let mut x = text_x;
     let y = node.y;
+    let mut hovered = None;
     if !c.refs.is_empty() {
         p.hline(node.x..=x, y, Stroke::new(1.0, text));
         // gitk's label colours, as a tint of the theme's matching colour
@@ -1244,6 +1255,9 @@ fn draw_commit_cell(
             let w = g.size().x + 6.0;
             let b = Rect::from_min_size(Pos2::new(x, rect.top() + 2.0), Vec2::new(w, ROW_H - 4.0));
             p.rect_filled(b, 2.0, tint(r.accent()));
+            if ui.rect_contains_pointer(b) {
+                hovered = Some(r.name.as_str());
+            }
             let n = r.remote_prefix_len();
             if r.kind == RefKind::Remote && n > 0 {
                 let pw = galley(p, &r.name[..n], font(11.0, r.current), text).size().x + 3.0;
@@ -1280,6 +1294,7 @@ fn draw_commit_cell(
         name,
         weak,
     );
+    hovered
 }
 
 impl eframe::App for App {
@@ -1475,8 +1490,9 @@ mod tests {
     use egui_kittest::Harness;
 
     /// A small repository with fixed names and dates, so renders repeat.
-    fn sample_repo() -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("gr-snapshot-{}", std::process::id()));
+    /// `name` keeps tests running in parallel apart.
+    fn sample_repo(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("gr-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let mut n = 0;
@@ -1523,7 +1539,7 @@ mod tests {
 
     #[test]
     fn snapshots() {
-        let dir = sample_repo();
+        let dir = sample_repo("snapshots");
         let repo = Repo::open(&dir, &[]).unwrap();
         // topic's only commit reviewed: its node, the ok label and the branch check
         let mut notes = repo.annotations().unwrap();
@@ -1562,6 +1578,48 @@ mod tests {
         harness.set_size(egui::Vec2::new(1100.0, 760.0));
         harness.run();
         harness.snapshot("settings");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn cmd_click_copies_ref_names() {
+        let dir = sample_repo("cmd-click");
+        let repo = Repo::open(&dir, &[]).unwrap();
+        let mut harness = Harness::builder()
+            .with_size([1600.0, 470.0])
+            .build_eframe(|cc| App::new(repo, None, init(cc, false), &cc.egui_ctx));
+        harness.run();
+        // the v1.0 label in the list and the topic row in the sidebar, as in
+        // the light snapshot
+        for (pos, name) in [((272.0, 145.0), "v1.0"), ((50.0, 117.0), "topic")] {
+            let pos = egui::pos2(pos.0, pos.1);
+            harness.hover_at(pos);
+            let mut copied = false;
+            // held by hand: event_modifiers runs a key-up frame after the
+            // click, and output() then no longer shows the copy
+            harness
+                .input_mut()
+                .events
+                .push(egui::Event::ModifiersChanged(egui::Modifiers::COMMAND));
+            for pressed in [true, false] {
+                harness.input_mut().events.push(egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::COMMAND,
+                });
+                harness.step();
+                copied |= harness
+                    .output()
+                    .platform_output
+                    .commands
+                    .iter()
+                    .any(|c| matches!(c, egui::OutputCommand::CopyText(t) if t == name));
+            }
+            harness.input_mut().events.push(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+            assert!(copied, "cmd-click on {name} copied nothing");
+            assert_eq!(harness.state().sel, 0, "cmd-click on {name} also selected");
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
