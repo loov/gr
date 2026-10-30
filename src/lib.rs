@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 pub use annotations::Annotations;
-pub use details::{Details, DiffOpts, Kind, Line, Style};
+pub use details::{Details, DiffOpts, Kind, Line, Link, Style};
 pub use find::{Dir, Field, Hit, Mode, Query, Wrap};
 pub use graph::Seg;
 pub use locations::{Location, Locations};

@@ -851,9 +851,15 @@ impl App {
                     if origin_menu(&under, l) || origin_menu(&resp, l) {
                         origin = Some((i, l.clone()));
                     }
-                    if let Some(row) = l.link {
-                        if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                            link = Some(row);
+                    let over = |pos: Pos2| {
+                        l.links.iter().find(|k| {
+                            char_rects(r, k.chars.clone(), n, char_w).any(|c| c.contains(pos))
+                        })
+                    };
+                    if let Some(k) = resp.hover_pos().and_then(over) {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        if resp.clicked() {
+                            link = Some(k.row);
                         }
                     }
                 }
@@ -1092,35 +1098,55 @@ fn draw_line(
 ) -> egui::Response {
     let fg = fg(ui, line.style.fg);
     let p = ui.painter().with_clip_rect(rect);
-    let left = rect.left() + 4.0;
+    let left = rect.left() + LINE_PAD;
     if let Some(bg_c) = line.style.bg {
         let bg = bg(ui, bg_c);
         p.rect_filled(rect, 0.0, bg);
-        // the changed words in a deeper shade of the line's colour, a
-        // rect per wrapped row they cover
+        // the changed words in a deeper shade of the line's colour
         for &(s, e) in &line.changed {
-            for row in s / cols..=(e.max(s + 1) - 1) / cols {
-                let (a, b) = (s.max(row * cols) - row * cols, e.min((row + 1) * cols) - row * cols);
-                let y = rect.top() + row as f32 * ROW_H;
-                let r = Rect::from_x_y_ranges(
-                    left + a as f32 * char_w..=left + b as f32 * char_w,
-                    y..=y + ROW_H,
-                );
+            for r in char_rects(rect, s..e, cols, char_w) {
                 p.rect_filled(r, 2.0, bg.lerp_to_gamma(fg, 0.25));
             }
         }
     }
     let g = line_galley(ui, line, fg, cols as f32 * char_w + 0.5);
     let size = g.size();
-    if line.link.is_some() {
-        let w = size.x.min(rect.width() - 8.0);
-        p.hline(left..=left + w, rect.top() + ROW_H / 2.0 + 7.0, Stroke::new(1.0, fg));
+    for link in &line.links {
+        let color = link_colour(ui, line, link, fg);
+        for r in char_rects(rect, link.chars.clone(), cols, char_w) {
+            p.hline(r.x_range(), r.top() + ROW_H / 2.0 + 7.0, Stroke::new(1.0, color));
+        }
     }
     let mut text = ui.new_child(
         egui::UiBuilder::new().max_rect(Rect::from_min_size(Pos2::new(left, rect.top()), size)),
     );
     text.set_clip_rect(rect.intersect(ui.clip_rect()));
     text.add(egui::Label::new(g).selectable(true))
+}
+
+/// Space left of a diff line's text.
+const LINE_PAD: f32 = 4.0;
+
+/// A rect per wrapped row that `chars` of a line drawn in `rect` cover.
+fn char_rects(
+    rect: Rect,
+    chars: std::ops::Range<usize>,
+    cols: usize,
+    char_w: f32,
+) -> impl Iterator<Item = Rect> {
+    let (s, e) = (chars.start, chars.end);
+    let left = rect.left() + LINE_PAD;
+    (s / cols..=(e.max(s + 1) - 1) / cols).map(move |row| {
+        let (a, b) = (s.max(row * cols) - row * cols, e.min((row + 1) * cols) - row * cols);
+        let y = rect.top() + row as f32 * ROW_H;
+        Rect::from_x_y_ranges(left + a as f32 * char_w..=left + b as f32 * char_w, y..=y + ROW_H)
+    })
+}
+
+/// The colour `link`'s text is drawn in, to underline it the same.
+fn link_colour(ui: &egui::Ui, line: &gr::Line, link: &gr::Link, fg: Color32) -> Color32 {
+    let span = line.syntax.iter().find(|&&(s, _, _)| s == link.chars.start);
+    span.map_or(fg, |&(_, _, c)| self::fg(ui, c))
 }
 
 /// A diff line's text in `fg` with its syntax colours, wrapped anywhere at

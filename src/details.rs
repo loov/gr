@@ -20,7 +20,7 @@ impl Default for DiffOpts {
 pub enum Kind {
     /// Header and commit message text.
     Plain,
-    /// "Parent:"/"Child:" lines and message lines naming a commit; `Line::link` holds the target row.
+    /// "Parent:"/"Child:" lines, linked as a whole through `Line::links`.
     Link,
     /// The "---- path ----" bar that starts each file.
     FileSep,
@@ -41,13 +41,20 @@ pub struct Style {
     pub bold: bool,
 }
 
+/// A commit a line points at, and the chars of the line that link to it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Link {
+    pub row: usize,
+    pub chars: std::ops::Range<usize>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Line {
     /// Tabs are already expanded.
     pub text: String,
     pub kind: Kind,
     pub style: Style,
-    pub link: Option<usize>,
+    pub links: Vec<Link>,
     /// A line of a merge diff, with a prefix column per parent.
     pub merge: bool,
     /// Char ranges of the words that changed, for word diff.
@@ -78,7 +85,7 @@ impl Details {
             text: String::new(),
             kind: Kind::Plain,
             style: plain(),
-            link: None,
+            links: vec![],
             merge: false,
             changed: vec![],
             syntax: vec![],
@@ -219,14 +226,14 @@ struct Builder {
 
 impl Builder {
     fn push(&mut self, text: impl Into<String>, kind: Kind) {
-        self.push_styled(text.into(), kind, style_for(kind, false, None), None);
+        self.push_styled(text.into(), kind, style_for(kind, false, None), vec![]);
     }
-    fn push_styled(&mut self, text: String, kind: Kind, style: Style, link: Option<usize>) {
+    fn push_styled(&mut self, text: String, kind: Kind, style: Style, links: Vec<Link>) {
         self.lines.push(Line {
             text,
             kind,
             style,
-            link,
+            links,
             merge: false,
             changed: vec![],
             syntax: vec![],
@@ -235,9 +242,11 @@ impl Builder {
             new: 0,
         });
     }
+    /// A line that links to `row` as a whole.
     fn link(&mut self, text: String, row: Option<usize>) {
         let kind = if row.is_some() { Kind::Link } else { Kind::Plain };
-        self.push_styled(text, kind, style_for(kind, false, None), row);
+        let links = row.map(|row| Link { row, chars: 0..text.chars().count() });
+        self.push_styled(text, kind, style_for(kind, false, None), links.into_iter().collect());
     }
     fn file_sep(name: &str) -> String {
         let pad = "-".repeat(78usize.saturating_sub(name.len()) / 2);
@@ -403,7 +412,7 @@ fn parse_diff(b: &mut Builder, diff: &str) {
                 } else {
                     (Kind::Context, None)
                 };
-                b.push_styled(text, kind, style_for(kind, merge, parent), None);
+                b.push_styled(text, kind, style_for(kind, merge, parent), vec![]);
                 let l = b.lines.last_mut().expect("push_styled added a line");
                 l.merge = merge;
                 if !merge {
@@ -507,25 +516,31 @@ impl Repo {
             b.push(format!("{label}: {names}"), Kind::Plain);
         }
         b.push("", Kind::Plain);
-        // A whole message line links to the first commit it names by a
-        // 6-40 char unique id prefix; per-span links if lines with several IDs matter.
+        // Each word that is a 6-40 char unique id prefix links to its commit.
         // Each candidate word is a linear prefix scan, so at most 64 per message;
         // a sorted id index would lift the cap.
         let mut budget = 64;
         for l in c.body().lines() {
-            let row = l
-                .split(|ch: char| !ch.is_ascii_alphanumeric())
-                .filter(|w| {
-                    (6..=40).contains(&w.len()) && w.chars().all(|ch| ch.is_ascii_hexdigit())
-                })
-                .take_while(|_| {
-                    budget > 0 && {
-                        budget -= 1;
-                        true
-                    }
-                })
-                .find_map(|w| self.resolve(w).ok());
-            b.link(format!("    {}", expand_tabs(l, 0)), row);
+            let text = format!("    {}", expand_tabs(l, 0));
+            let mut links = vec![];
+            let mut syntax = vec![];
+            for w in text.split(|ch: char| !ch.is_ascii_alphanumeric()) {
+                let id = (6..=40).contains(&w.len()) && w.chars().all(|ch| ch.is_ascii_hexdigit());
+                if !id || budget == 0 {
+                    continue;
+                }
+                budget -= 1;
+                if let Ok(row) = self.resolve(w) {
+                    // ids are ASCII, but the text before one need not be
+                    let at = w.as_ptr() as usize - text.as_ptr() as usize;
+                    let start = text[..at].chars().count();
+                    let chars = start..start + w.len();
+                    syntax.push((chars.start, chars.end, style_for(Kind::Link, false, None).fg));
+                    links.push(Link { row, chars });
+                }
+            }
+            b.push_styled(text, Kind::Plain, plain(), links);
+            b.lines.last_mut().expect("just pushed").syntax = syntax;
         }
     }
 
@@ -747,14 +762,16 @@ mod tests {
         }
     }
 
-    #[test]
-    fn follows_all_parents() {
-        let dir = std::env::temp_dir().join(format!("gitk-core-follows-{}", std::process::id()));
+    /// A fresh repository named `name`, and a way to run git in it that
+    /// returns its output.
+    fn temp_repo(name: &str) -> (std::path::PathBuf, impl Fn(&[&str]) -> String) {
+        let dir = std::env::temp_dir().join(format!("gitk-core-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let sh = |args: &[&str]| {
-            let ok = std::process::Command::new("git")
-                .current_dir(&dir)
+        let cwd = dir.clone();
+        let sh = move |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .current_dir(&cwd)
                 .env("GIT_CONFIG_GLOBAL", "/dev/null")
                 .env("GIT_CONFIG_NOSYSTEM", "1")
                 .args([
@@ -768,11 +785,37 @@ mod tests {
                     "commit.gpgSign=false",
                 ])
                 .args(args)
-                .status()
-                .unwrap()
-                .success();
-            assert!(ok, "{args:?}");
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "{args:?}");
+            String::from_utf8(out.stdout).unwrap()
         };
+        (dir, sh)
+    }
+
+    #[test]
+    fn message_links_each_id() {
+        let (dir, sh) = temp_repo("links");
+        sh(&["init", "-q", "-b", "main"]);
+        sh(&["commit", "-q", "--allow-empty", "-m", "root"]);
+        let root = sh(&["rev-parse", "HEAD"]);
+        let short = &root[..7];
+        // é is a multibyte separator, so byte and char offsets differ
+        let msg = format!("fix\n\nreverts é {short} and {short}, not abcdef0");
+        sh(&["commit", "-q", "--allow-empty", "-m", &msg]);
+        let repo = Repo::open(&dir, &[]).unwrap();
+        let d = repo.details(0, &DiffOpts::default());
+        let l = d.lines.iter().find(|l| l.text.starts_with("    reverts")).unwrap();
+        let linked: Vec<String> =
+            l.links.iter().map(|k| l.text.chars().skip(k.chars.start).take(7).collect()).collect();
+        assert_eq!(linked, [short, short]);
+        assert!(l.links.iter().all(|k| k.row == 1 && k.chars.len() == 7));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn follows_all_parents() {
+        let (dir, sh) = temp_repo("follows");
         sh(&["init", "-q", "-b", "main"]);
         sh(&["commit", "-q", "--allow-empty", "-m", "root"]);
         sh(&["checkout", "-q", "-b", "side"]);
