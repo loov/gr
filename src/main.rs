@@ -132,6 +132,9 @@ struct App {
     /// Review counts by location (name, id); cleared when notes or
     /// locations change.
     review: RefCell<HashMap<(String, String), (usize, usize)>>,
+    /// Graph segments of the rows drawn lately; replaying the lanes for a
+    /// row allocates, and a wide graph has thousands of segments on screen.
+    segs: HashMap<usize, Vec<Seg>>,
     sel: usize,
     /// The selected commit's details, and as shown: split side by side or not.
     raw: Details,
@@ -207,6 +210,7 @@ impl App {
             locs,
             notes,
             review: Default::default(),
+            segs: Default::default(),
             repo,
             sel,
             // filled by select below
@@ -365,6 +369,7 @@ impl App {
                 self.history.remap(|r| old.commits.get(r).and_then(|c| new.index_of(c.id())));
                 self.locs = locs;
                 self.review.borrow_mut().clear();
+                self.segs.clear();
                 // select clears the status, but a failed git command
                 // reports through it just before this reload
                 let status = std::mem::take(&mut self.status);
@@ -774,6 +779,11 @@ impl App {
         }
         let (repo, sel, query, notes) = (&self.repo, self.sel, &self.query, &self.notes);
         let counts = Reviewed { notes, cache: &self.review };
+        let segs = &mut self.segs;
+        // a few screens' worth of rows
+        if segs.len() > 1000 {
+            segs.clear();
+        }
         let done: std::collections::HashSet<&str> = self
             .locs
             .branches
@@ -798,7 +808,7 @@ impl App {
                     label = draw_commit_cell(
                         ui,
                         c,
-                        &repo.segs(i),
+                        segs.entry(i).or_insert_with(|| repo.segs(i)),
                         hit != Hit::No,
                         notes.has(c.id(), "ok"),
                         &done,
