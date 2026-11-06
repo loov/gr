@@ -1061,8 +1061,9 @@ impl App {
             self.select(row);
         }
         if let Some((i, line)) = origin {
-            let file = self.details.files[self.details.file_at(i)].0.clone();
-            match self.repo.origin(self.sel, &file, &line) {
+            let f = self.details.file_at(i);
+            let (file, old) = (&self.details.files[f].0, &self.details.old_names[f]);
+            match self.repo.origin(self.sel, file, old, &line) {
                 Ok(row) => self.select(row),
                 Err(e) => self.status = e,
             }

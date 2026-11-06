@@ -499,7 +499,15 @@ impl Repo {
     /// The row of the commit that last changed `line` of `file` in the diff
     /// of `row`: `git blame` of the line's new side, or of the parent's side
     /// for a removed line.
-    pub fn origin(&self, row: usize, file: &str, line: &Line) -> Result<usize, String> {
+    /// `old_file` is the file's name in the parent, as `Details::old_names`
+    /// has it, for a removed line.
+    pub fn origin(
+        &self,
+        row: usize,
+        file: &str,
+        old_file: &str,
+        line: &Line,
+    ) -> Result<usize, String> {
         let c = &self.commits[row];
         let (rev, n, file) = match (line.kind, c.id()) {
             (_, _) if line.old == 0 && line.new == 0 => {
@@ -509,34 +517,17 @@ impl Repo {
                 return Err("the line is not committed yet".into())
             }
             // the old side of the work tree and index diffs, near enough
-            (_, UNCOMMITTED_ID | INDEX_ID) => ("HEAD".to_string(), line.old, file.to_string()),
-            (Kind::Del, id) => (format!("{id}^"), line.old, self.old_path(id, file)),
-            (_, id) => (id.to_string(), line.new, file.to_string()),
+            (_, UNCOMMITTED_ID | INDEX_ID) => ("HEAD".to_string(), line.old, old_file),
+            (Kind::Del, id) => (format!("{id}^"), line.old, old_file),
+            (_, id) => (id.to_string(), line.new, file),
         };
         let range = format!("{n},{n}");
         // blame takes a plain path, not :(top), so run it from the top
-        let out = git(&self.dir, &["blame", "--porcelain", "-L", &range, &rev, "--", &file])
+        let out = git(&self.dir, &["blame", "--porcelain", "-L", &range, &rev, "--", file])
             .map_err(|e| e.to_string())?;
         let id = out.split(' ').next().unwrap_or("");
         self.index_of(id)
             .ok_or_else(|| format!("{} is not in this view", id.get(..12).unwrap_or(id)))
-    }
-
-    /// The name `file` had in the parent of commit `id`, when the diff (run
-    /// as `details` runs it, with -C) shows it renamed or copied.
-    fn old_path(&self, id: &str, file: &str) -> String {
-        let mut a =
-            vec!["diff-tree", "-r", "-C", "--no-commit-id", "--name-status", "-z", id, "--"];
-        a.extend(self.paths.iter().map(String::as_str));
-        let out = git(&self.cwd, &a).unwrap_or_default();
-        // "<status>\0<path>\0", with a second path after R and C statuses
-        let mut f = out.split('\0');
-        while let (Some(status), Some(path)) = (f.next(), f.next()) {
-            if status.starts_with(['R', 'C']) && f.next() == Some(file) {
-                return path.to_string();
-            }
-        }
-        file.to_string()
     }
 
     /// The row in `repo`, a reloaded copy of this one, to select in place of
@@ -1301,8 +1292,10 @@ mod tests {
         let repo = Repo::open(&dir, &[]).unwrap();
         let row = |s: &str| repo.commits.iter().position(|c| c.subject() == s).unwrap();
         let d = repo.details(row("b"), &DiffOpts::default());
-        let line = d.lines.iter().find(|l| l.text == "-6").unwrap();
-        assert_eq!(repo.origin(row("b"), "new.txt", line), Ok(row("a")));
+        let i = d.lines.iter().position(|l| l.text == "-6").unwrap();
+        let f = d.file_at(i);
+        assert_eq!((d.files[f].0.as_str(), d.old_names[f].as_str()), ("new.txt", "old.txt"));
+        assert_eq!(repo.origin(row("b"), "new.txt", "old.txt", &d.lines[i]), Ok(row("a")));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1354,9 +1347,9 @@ mod tests {
         let row = |s: &str| repo.commits.iter().position(|c| c.subject() == s).unwrap();
         let d = repo.details(row("b"), &DiffOpts::default());
         let line = |t: &str| d.lines.iter().find(|l| l.text == t).unwrap();
-        assert_eq!(repo.origin(row("b"), "x", line(" one")), Ok(row("a")));
-        assert_eq!(repo.origin(row("b"), "x", line("-two")), Ok(row("a")));
-        assert_eq!(repo.origin(row("b"), "x", line("+TWO")), Ok(row("b")));
+        assert_eq!(repo.origin(row("b"), "x", "x", line(" one")), Ok(row("a")));
+        assert_eq!(repo.origin(row("b"), "x", "x", line("-two")), Ok(row("a")));
+        assert_eq!(repo.origin(row("b"), "x", "x", line("+TWO")), Ok(row("b")));
 
         let hist = Repo::open(dir.join("sub"), &Repo::file_history_args(&[], "x")).unwrap();
         let subjects: Vec<&str> = hist.commits.iter().map(|c| c.subject()).collect();
