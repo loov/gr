@@ -841,8 +841,11 @@ impl App {
                     // under the label, so text selection still works on the text
                     let under =
                         ui.interact(r, ui.scope_id().with(("diff line", i, side)), Sense::click());
+                    // only visible lines are laid out, so an auto id would shift
+                    // with the scroll and move the text selection to another line
+                    let id = ui.scope_id().with(("diff text", i, side));
                     let resp = draw_line(
-                        &mut ui.new_child(egui::UiBuilder::new().max_rect(r)),
+                        &mut ui.new_child(egui::UiBuilder::new().max_rect(r).scope_id(id)),
                         r,
                         l,
                         char_w,
