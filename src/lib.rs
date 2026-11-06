@@ -910,6 +910,9 @@ impl Side {
             ];
             a.extend(paths.iter().map(String::as_str));
             staged = git_differs(cwd, &a);
+            // diff-files trusts the index's stat data, so a touched file
+            // would count as changed; gitk refreshes first too
+            let _ = git(cwd, &["update-index", "-q", "--refresh"]);
             let mut a = vec!["diff-files", "--quiet", "--"];
             a.extend(paths.iter().map(String::as_str));
             unstaged = git_differs(cwd, &a);
@@ -1204,6 +1207,52 @@ mod tests {
         let hist = Repo::open(dir.join("sub"), &Repo::file_history_args(&[], "x")).unwrap();
         let subjects: Vec<&str> = hist.commits.iter().map(|c| c.subject()).collect();
         assert_eq!(subjects, ["b", "a"]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A fresh repository in the temp dir and a git runner for it.
+    fn scratch(name: &str) -> (PathBuf, impl Fn(&[&str])) {
+        let dir = std::env::temp_dir().join(format!("gr-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let d = dir.clone();
+        let sh = move |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .current_dir(&d)
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgSign=false"])
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "{args:?}");
+        };
+        sh(&["init", "-q", "-b", "main"]);
+        (dir, sh)
+    }
+
+    #[test]
+    fn touched_file_is_not_a_change() {
+        let (dir, sh) = scratch("touch");
+        std::fs::write(dir.join("f"), "a\n").unwrap();
+        sh(&["add", "f"]);
+        sh(&["commit", "-q", "-m", "a"]);
+        let index = || std::fs::metadata(dir.join(".git/index")).unwrap().modified().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        let f = std::fs::File::options().write(true).open(dir.join("f")).unwrap();
+        f.set_modified(std::time::SystemTime::now()).unwrap();
+        let repo = Repo::open(&dir, &[]).unwrap();
+        assert!(repo.commits.iter().all(|c| !c.is_fake()));
+        // the refresh rewrites the index, twice when the touch was racy
+        // (same second as the write); after that it must leave it alone,
+        // or the watcher would reload forever
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        Repo::open(&dir, &[]).unwrap();
+        let before = index();
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        Repo::open(&dir, &[]).unwrap();
+        assert_eq!(index(), before);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
