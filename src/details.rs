@@ -363,12 +363,12 @@ fn parse_diff(b: &mut Builder, diff: &str) {
                 submodule = name.to_string();
             }
             in_hdr = false;
-            b.push(line, Kind::FileHeader);
+            b.push(expand_tabs(line, 0), Kind::FileHeader);
             continue;
         }
         if !submodule.is_empty() && (line.starts_with("  >") || line.starts_with("  <")) {
             let kind = if line.starts_with("  >") { Kind::Add } else { Kind::Del };
-            b.push(line, kind);
+            b.push(expand_tabs(line, 0), kind);
             continue;
         }
         if line.starts_with("diff ") {
@@ -392,7 +392,7 @@ fn parse_diff(b: &mut Builder, diff: &str) {
                 f.split(',').next().and_then(|n| n.parse().ok()).unwrap_or(0)
             };
             (old, new) = (start('-'), start('+'));
-            b.push(line, Kind::Hunk);
+            b.push(expand_tabs(line, 0), Kind::Hunk);
         } else if in_hdr {
             if let Some(n) =
                 line.strip_prefix("rename to ").or_else(|| line.strip_prefix("copy to "))
@@ -410,7 +410,7 @@ fn parse_diff(b: &mut Builder, diff: &str) {
                 in_hdr = false;
                 continue;
             }
-            b.push(line, Kind::FileHeader);
+            b.push(expand_tabs(line, 0), Kind::FileHeader);
         } else {
             let prefix: String = line.chars().take(nparents).collect();
             let mut text = expand_tabs(line, nparents);
@@ -726,7 +726,7 @@ mod tests {
     #[test]
     fn simple_diff() {
         let b = build(
-            "diff --git a/my file.txt b/my file.txt\nindex 1..2 100644\n--- a/my file.txt\n+++ b/my file.txt\n@@ -1,2 +1,2 @@\n ctx\n-old\n+new\n\tx\n",
+            "diff --git a/my file.txt b/my file.txt\nindex 1..2 100644\n--- a/my file.txt\n+++ b/my file.txt\n@@ -1,2 +1,2 @@\tfn f() {\n ctx\n-old\n+new\n\tx\n",
         );
         assert_eq!(b.files[1].0, "my file.txt");
         let kinds: Vec<Kind> = b.lines.iter().map(|l| l.kind).collect();
@@ -735,6 +735,7 @@ mod tests {
         assert_eq!(b.lines[b.files[1].1].kind, FileSep);
         // a line starting with a tab is not a valid diff line; tab expanded
         assert_eq!(b.lines[7].text, "        x");
+        assert_eq!(b.lines[3].text, "@@ -1,2 +1,2 @@ fn f() {");
     }
 
     #[test]
