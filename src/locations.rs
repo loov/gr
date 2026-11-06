@@ -69,8 +69,7 @@ impl Locations {
         // " <id> <path> (<describe>)", the first column is a status flag
         let subs = git(cwd, &["submodule", "status"]);
         for line in subs.unwrap_or_default().lines() {
-            let mut f = line.get(1..).unwrap_or("").split(' ');
-            if let (Some(id), Some(path)) = (f.next(), f.next()) {
+            if let Some((id, path)) = parse_submodule(line) {
                 l.submodules.push(Location {
                     name: path.into(),
                     id: id.into(),
@@ -106,6 +105,14 @@ impl Locations {
     }
 }
 
+/// " <id> <path> (<describe>)" -> (id, path); the path may hold spaces and
+/// the describe part is missing when the submodule is not checked out.
+fn parse_submodule(line: &str) -> Option<(&str, &str)> {
+    let (id, rest) = line.get(1..)?.split_once(' ')?;
+    let path = rest.strip_suffix(')').and_then(|r| r.rsplit_once(" (")).map_or(rest, |r| r.0);
+    Some((id, path))
+}
+
 /// "ahead 2, behind 1004" -> (1004, 2); None without an upstream or when gone.
 fn parse_track(s: &str) -> Option<(usize, usize)> {
     if s.is_empty() || s == "gone" {
@@ -133,6 +140,13 @@ mod tests {
         assert_eq!(parse_track("up to date"), Some((0, 0)));
         assert_eq!(parse_track("ahead 2"), Some((0, 2)));
         assert_eq!(parse_track("ahead 2, behind 1004"), Some((1004, 2)));
+    }
+
+    #[test]
+    fn submodule() {
+        assert_eq!(parse_submodule(" abc my sub (v1.0)"), Some(("abc", "my sub")));
+        assert_eq!(parse_submodule("+abc lib (heads/main)"), Some(("abc", "lib")));
+        assert_eq!(parse_submodule("-abc my sub"), Some(("abc", "my sub")));
     }
 
     #[test]
