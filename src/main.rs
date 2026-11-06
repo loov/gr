@@ -131,7 +131,7 @@ struct App {
     notes: Annotations,
     /// Review counts by location (name, id); cleared when notes or
     /// locations change.
-    review: RefCell<HashMap<(String, String), (usize, usize)>>,
+    review: ReviewCache,
     /// Graph segments of the rows drawn lately; replaying the lanes for a
     /// row allocates, and a wide graph has thousands of segments on screen.
     segs: HashMap<usize, Vec<Seg>>,
@@ -188,7 +188,7 @@ struct App {
     /// The file whose history is shown, and the log arguments before.
     file_hist: Option<(String, Vec<String>)>,
     /// A reload running in the background.
-    loading: Option<std::thread::JoinHandle<std::io::Result<(Repo, Locations)>>>,
+    loading: Option<Loading>,
     ctx: egui::Context,
 }
 
@@ -1479,7 +1479,7 @@ fn line_galley(ui: &egui::Ui, line: &gr::Line, fg: Color32, wrap: f32) -> Arc<Ga
 /// Review marks, with the counts per location as drawn so far.
 struct Reviewed<'a> {
     notes: &'a Annotations,
-    cache: &'a RefCell<HashMap<(String, String), (usize, usize)>>,
+    cache: &'a ReviewCache,
 }
 
 impl Reviewed<'_> {
@@ -1716,6 +1716,12 @@ impl eframe::App for App {
 }
 
 /// The app, or the history still loading at startup.
+/// Review counts by location (name, id).
+type ReviewCache = RefCell<HashMap<(String, String), (usize, usize)>>;
+
+/// A thread opening a repository.
+type Loading = std::thread::JoinHandle<std::io::Result<(Repo, Locations)>>;
+
 /// `repo` with its branch locations, read on the loading thread: they walk
 /// the base branch's history.
 fn with_locations(repo: Repo) -> (Repo, Locations) {
@@ -1724,13 +1730,7 @@ fn with_locations(repo: Repo) -> (Repo, Locations) {
 }
 
 enum Gr {
-    Loading(
-        Option<(
-            std::thread::JoinHandle<std::io::Result<(Repo, Locations)>>,
-            Option<menu::Native>,
-            settings::Settings,
-        )>,
-    ),
+    Loading(Option<(Loading, Option<menu::Native>, settings::Settings)>),
     Ready(Box<App>),
 }
 
