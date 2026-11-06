@@ -425,8 +425,15 @@ fn parse_diff(b: &mut Builder, diff: &str) {
                         new += 1;
                     }
                 }
+            } else if let Some(l) = b.lines.last_mut().filter(|l| {
+                line.starts_with("\\ ") && matches!(l.kind, Kind::Context | Kind::Add | Kind::Del)
+            }) {
+                // "\ No newline at end of file" goes on the line it is about,
+                // so a removed and an added last line still pair up
+                l.text.push(' ');
+                l.text.push_str(&text);
             } else {
-                // "\ No newline at end of file", submodule summaries, ...
+                // submodule summaries, ...
                 b.push(text, Kind::Hunk);
             }
         }
@@ -712,6 +719,19 @@ mod tests {
         assert_eq!(b.lines[b.files[1].1].kind, FileSep);
         // a line starting with a tab is not a valid diff line; tab expanded
         assert_eq!(b.lines[7].text, "        x");
+    }
+
+    #[test]
+    fn no_newline_pairs() {
+        let mut b = build(
+            "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,2 +1,2 @@\n a\n-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file\n",
+        );
+        decorate::word_diff(&mut b.lines);
+        let n = b.lines.len();
+        let (del, add) = (&b.lines[n - 2], &b.lines[n - 1]);
+        assert_eq!(del.text, "-old \\ No newline at end of file");
+        assert_eq!((del.kind, add.kind), (Kind::Del, Kind::Add));
+        assert_eq!((del.changed.clone(), add.changed.clone()), (vec![(1, 4)], vec![(1, 4)]));
     }
 
     #[test]
