@@ -330,9 +330,20 @@ fn split_quoted(s: &str) -> (String, &str) {
     (String::from_utf8_lossy(&out).into_owned(), s.get(i + 1..).unwrap_or(""))
 }
 
-/// Name from a `--submodule=log` summary line ("Submodule sub abc..def:" or "Submodule sub contains ...").
+/// Name from a `--submodule=log` summary line ("Submodule sub abc..def:",
+/// "Submodule sub abc...def (new submodule)" or "Submodule sub contains ...").
 fn submodule_name(rest: &str) -> &str {
-    let end = rest.find(" contains ").unwrap_or_else(|| rest.rfind(' ').unwrap_or(rest.len()));
+    let hex = |s: &str| !s.is_empty() && s.bytes().all(|c| c.is_ascii_hexdigit());
+    let range = |w: &str| {
+        let w = w.trim_end_matches(':');
+        w.split_once("..").is_some_and(|(a, b)| hex(a) && hex(b.strip_prefix('.').unwrap_or(b)))
+    };
+    let end = rest
+        .rmatch_indices(' ')
+        .map(|(i, _)| i)
+        .find(|&i| range(rest[i + 1..].split(' ').next().unwrap_or("")))
+        .or_else(|| rest.find(" contains "))
+        .unwrap_or(rest.len());
     &rest[..end]
 }
 
@@ -758,6 +769,16 @@ mod tests {
         let n = b.lines.len();
         assert_eq!((b.lines[n - 2].kind, b.lines[n - 1].kind), (Kind::Add, Kind::Del));
         assert_eq!(unquote("\"tab\\there\""), "tab\there");
+        for l in [
+            "my sub 0000000...1234567 (new submodule)",
+            "my sub 1234567...0000000 (submodule deleted)",
+            "my sub 1234567...89abcde (rewind):",
+            "my sub 1234567..89abcde (commits not present)",
+            "my sub 1234567..89abcde:",
+            "my sub contains untracked content",
+        ] {
+            assert_eq!(submodule_name(l), "my sub", "{l}");
+        }
     }
 
     #[test]
