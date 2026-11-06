@@ -134,6 +134,12 @@ struct App {
     /// laid out for `layout_w`.
     ys: Vec<f32>,
     layout_w: f32,
+    /// Height of the diff's content: the lines, and room below them to
+    /// scroll the last file to the top.
+    diff_total: f32,
+    /// File list row at the top of the diff, and the list's scroll offset.
+    files_cur: usize,
+    files_off: f32,
     /// Diff line to scroll to once the diff is laid out.
     diff_goto: Option<usize>,
     /// Text selected in the diff.
@@ -200,6 +206,9 @@ impl App {
             split: false,
             ys: vec![],
             layout_w: 0.0,
+            diff_total: 0.0,
+            files_cur: 0,
+            files_off: 0.0,
             diff_goto: None,
             diff_sel: None,
             diff_menu: None,
@@ -407,7 +416,7 @@ impl App {
 
     /// Starts (or extends) an eased scroll of the diff by `dy`, stopping at either end.
     fn animate_diff(&mut self, ctx: &egui::Context, dy: f32) {
-        let max = (self.ys.last().copied().unwrap_or(0.0) - self.diff_h).max(0.0);
+        let max = (self.diff_total - self.diff_h).max(0.0);
         let to = self.diff_anim.map_or(self.diff_off.y, |a| a.1) + dy;
         self.diff_anim = Some((self.diff_off.y, to.clamp(0.0, max), ctx.input(|i| i.time)));
     }
@@ -827,6 +836,11 @@ impl App {
             }
             self.ys.push(y);
         }
+        // a jump to a short last file would otherwise stop at the end of
+        // the diff, with an earlier file at the top
+        let last_file = self.details.files.last().map_or(0, |f| f.1);
+        let total = *self.ys.last().expect("ys ends with the total height");
+        self.diff_total = total.max(self.ys[last_file.min(self.ys.len() - 1)] + self.diff_h);
         if let Some(line) = self.diff_goto.take() {
             self.diff_scroll = Some(Vec2::new(0.0, self.ys[line.min(self.ys.len() - 1)]));
         }
@@ -852,8 +866,8 @@ impl App {
         let mut origin = None;
         let (lines, ys) = (&self.details.lines, &self.ys);
         let (sel, menu) = (&mut self.diff_sel, &mut self.diff_menu);
+        let height = self.diff_total;
         let out = sa.show_viewport(ui, |ui, view| {
-            let height = *ys.last().expect("ys ends with the total height");
             ui.set_height(height);
             let top = ui.max_rect().min;
             if lines.is_empty() {
@@ -1013,6 +1027,14 @@ impl App {
         let cur = self.details.file_at(self.top_line());
         let mut jump = None;
         let mut hist = None;
+        let mut list_off = None;
+        let h = (self.details.files.len() as f32 * ROW_H).min(diff.height() * 0.4);
+        // keep the current file in view as the diff scrolls
+        let follow = (cur != self.files_cur).then(|| {
+            let y = cur as f32 * ROW_H;
+            self.files_off.max(y + ROW_H - h).min(y)
+        });
+        self.files_cur = cur;
         let files = &self.details.files;
         if files.is_empty() {
             return;
@@ -1042,43 +1064,55 @@ impl App {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 // the area sizes itself from the last frame, which can cut the last
                 // row when the file count changes, so give the height outright
-                let h = (files.len() as f32 * ROW_H).min(diff.height() * 0.4);
-                egui::ScrollArea::vertical()
+                let mut sa = egui::ScrollArea::vertical()
                     .id_salt("files")
                     .min_scrolled_height(h)
-                    .max_height(h)
-                    .show_rows(ui, ROW_H, files.len(), |ui, range| {
-                        for (i, (name, line)) in
-                            files.iter().enumerate().take(range.end).skip(range.start)
-                        {
-                            let color = ui.visuals().text_color();
-                            let g = galley(ui.painter(), name, font(13.0, false), color);
-                            let (rect, resp) =
-                                ui.allocate_exact_size(Vec2::new(w, ROW_H), Sense::click());
-                            if i == cur {
-                                ui.painter().rect_filled(rect, 0.0, ui.visuals().selection.bg_fill);
-                            }
-                            // long names are cut at the list's edge
-                            ui.painter().with_clip_rect(rect).galley(
-                                Pos2::new(rect.left() + 4.0, rect.center().y - g.size().y / 2.0),
-                                g,
-                                color,
-                            );
-                            if resp.clicked() {
-                                jump = Some(*line);
-                            }
-                            if i > 0 {
-                                resp.context_menu(|ui| {
-                                    if ui.button("Show History of This File").clicked() {
-                                        hist = Some(name.clone());
-                                        ui.close();
-                                    }
-                                });
-                            }
+                    .max_height(h);
+                if let Some(off) = follow {
+                    sa = sa.vertical_scroll_offset(off);
+                }
+                let out = sa.show_rows(ui, ROW_H, files.len(), |ui, range| {
+                    for (i, (name, line)) in
+                        files.iter().enumerate().take(range.end).skip(range.start)
+                    {
+                        let color = ui.visuals().text_color();
+                        let g = galley(ui.painter(), name, font(13.0, false), color);
+                        let (rect, resp) =
+                            ui.allocate_exact_size(Vec2::new(w, ROW_H), Sense::click());
+                        if i == cur {
+                            ui.painter().rect_filled(rect, 0.0, ui.visuals().selection.bg_fill);
+                        } else if resp.hovered() {
+                            let fill = ui.visuals().widgets.hovered.weak_bg_fill;
+                            ui.painter().rect_filled(rect, 0.0, fill);
                         }
-                    });
+                        if resp.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        // long names are cut at the list's edge
+                        ui.painter().with_clip_rect(rect).galley(
+                            Pos2::new(rect.left() + 4.0, rect.center().y - g.size().y / 2.0),
+                            g,
+                            color,
+                        );
+                        if resp.clicked() {
+                            jump = Some(*line);
+                        }
+                        if i > 0 {
+                            resp.context_menu(|ui| {
+                                if ui.button("Show History of This File").clicked() {
+                                    hist = Some(name.clone());
+                                    ui.close();
+                                }
+                            });
+                        }
+                    }
+                });
+                list_off = Some(out.state.clamped_offset().y);
             });
         });
+        if let Some(off) = list_off {
+            self.files_off = off;
+        }
         if let Some(line) = jump {
             self.diff_goto = Some(line);
         }
