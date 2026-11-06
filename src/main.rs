@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use eframe::egui::{
@@ -127,6 +129,9 @@ struct App {
     repo: Repo,
     locs: Locations,
     notes: Annotations,
+    /// Review counts by location (name, id); cleared when notes or
+    /// locations change.
+    review: RefCell<HashMap<(String, String), (usize, usize)>>,
     sel: usize,
     /// The selected commit's details, and as shown: split side by side or not.
     raw: Details,
@@ -201,6 +206,7 @@ impl App {
         let mut app = App {
             locs,
             notes,
+            review: Default::default(),
             repo,
             sel,
             // filled by select below
@@ -358,6 +364,7 @@ impl App {
                 let new = &self.repo;
                 self.history.remap(|r| old.commits.get(r).and_then(|c| new.index_of(c.id())));
                 self.locs = locs;
+                self.review.borrow_mut().clear();
                 // select clears the status, but a failed git command
                 // reports through it just before this reload
                 let status = std::mem::take(&mut self.status);
@@ -599,6 +606,7 @@ impl App {
         let own: std::collections::BTreeSet<&str> =
             self.locs.branches.iter().flat_map(|b| &b.own).map(String::as_str).collect();
         let own: Vec<&str> = own.into_iter().collect();
+        self.review.borrow_mut().clear();
         if let Err(e) = self.repo.carry_tag(&mut self.notes, "ok", &own) {
             self.status = format!("gr.info: {e}");
         }
@@ -611,6 +619,7 @@ impl App {
             return;
         }
         let id = c.id().to_string();
+        self.review.borrow_mut().clear();
         let res = self.notes.toggle(&id, tag).and_then(|set| {
             // the patch id lets the mark follow the commit through a rebase
             let pid =
@@ -764,12 +773,13 @@ impl App {
             table = table.vertical_scroll_offset(off);
         }
         let (repo, sel, query, notes) = (&self.repo, self.sel, &self.query, &self.notes);
+        let counts = Reviewed { notes, cache: &self.review };
         let done: std::collections::HashSet<&str> = self
             .locs
             .branches
             .iter()
             .filter(|b| {
-                let (d, n) = reviewed(b, notes);
+                let (d, n) = counts.counts(b);
                 n > 0 && d == n
             })
             .map(|b| b.name.as_str())
@@ -1147,7 +1157,8 @@ impl App {
     fn sidebar(&mut self, ui: &mut egui::Ui) {
         let mut go = None;
         let cur = self.repo.commits[self.sel].id();
-        let (l, notes) = (&self.locs, &self.notes);
+        let l = &self.locs;
+        let notes = &Reviewed { notes: &self.notes, cache: &self.review };
         egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
             // (title, entries, nest on '/', open by default)
             for (title, list, nest, open) in [
@@ -1221,7 +1232,7 @@ fn location_tree(
     list: &[Location],
     depth: usize,
     open: bool,
-    at: (&str, &Annotations),
+    at: (&str, &Reviewed),
     go: &mut Option<Location>,
 ) {
     let (cur, notes) = at;
@@ -1448,9 +1459,22 @@ fn line_galley(ui: &egui::Ui, line: &gr::Line, fg: Color32, wrap: f32) -> Arc<Ga
     ui.painter().layout_job(job)
 }
 
-/// (ok, all) of a branch's own commits.
-fn reviewed(loc: &Location, notes: &Annotations) -> (usize, usize) {
-    (loc.own.iter().filter(|id| notes.has(id, "ok")).count(), loc.own.len())
+/// Review marks, with the counts per location as drawn so far.
+struct Reviewed<'a> {
+    notes: &'a Annotations,
+    cache: &'a RefCell<HashMap<(String, String), (usize, usize)>>,
+}
+
+impl Reviewed<'_> {
+    /// (ok, all) of a location's own commits. Without a base branch a
+    /// branch owns its whole history, so this is too slow to count again
+    /// every frame.
+    fn counts(&self, loc: &Location) -> (usize, usize) {
+        let key = (loc.name.clone(), loc.id.clone());
+        *self.cache.borrow_mut().entry(key).or_insert_with(|| {
+            (loc.own.iter().filter(|id| self.notes.has(id, "ok")).count(), loc.own.len())
+        })
+    }
 }
 
 fn location_row(
@@ -1458,7 +1482,7 @@ fn location_row(
     name: &str,
     loc: &Location,
     cur: &str,
-    notes: &Annotations,
+    notes: &Reviewed,
     go: &mut Option<Location>,
 ) {
     let (rect, resp) =
@@ -1478,7 +1502,7 @@ fn location_row(
         paint_text(p, right, rect.center().y, g, weak);
         right -= 8.0;
     }
-    let (done, n) = reviewed(loc, notes);
+    let (done, n) = notes.counts(loc);
     if done > 0 {
         // ✓ once every commit is ok, the progress until then
         let (text, color) = if done == n {
