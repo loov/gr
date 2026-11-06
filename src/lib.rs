@@ -335,8 +335,15 @@ impl Repo {
         let revs: Vec<&str> =
             revs.iter().map(String::as_str).filter(|a| !breaks_parsing(a)).collect();
         let default_revs = !selects_revs(&revs);
+        // --all reaches only the newest stash; the sidebar lists them all
+        let stashes = if default_revs {
+            git(&cwd, &["stash", "list", "--format=%H"]).unwrap_or_default()
+        } else {
+            String::new()
+        };
         if default_revs {
             args.push("--all");
+            args.extend(stashes.lines());
         }
         args.extend(revs);
         // no diff after the message, including the one -L prints
@@ -1108,9 +1115,10 @@ mod tests {
         // run from core/, so "src" means core/src
         let dir = env!("CARGO_MANIFEST_DIR");
         let r = Repo::open(dir, &["--".into(), "src".into()]).unwrap();
-        let want =
-            git(&PathBuf::from(dir), &["log", "--topo-order", "--all", "--format=%H", "--", "src"])
-                .unwrap();
+        let stashes = git(&PathBuf::from(dir), &["stash", "list", "--format=%H"]).unwrap();
+        let mut args = vec!["log", "--topo-order", "--all", "--format=%H"];
+        args.extend(stashes.lines().chain(["--", "src"]));
+        let want = git(&PathBuf::from(dir), &args).unwrap();
         let got: Vec<&str> = r.commits.iter().filter(|c| !c.is_fake()).map(|c| c.id()).collect();
         assert_eq!(got, want.lines().collect::<Vec<_>>());
         let sel = r.commits.len() - 1;
@@ -1254,6 +1262,23 @@ mod tests {
         assert_eq!(repo.carry_tag(&mut notes, "ok", &copies).unwrap(), 1);
         assert!(!notes.has(&old, "ok"));
         assert_eq!(copies.iter().filter(|id| notes.has(id, "ok")).count(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn every_stash_is_listed() {
+        let (dir, sh) = scratch("stash");
+        std::fs::write(dir.join("f"), "a\n").unwrap();
+        sh(&["add", "f"]);
+        sh(&["commit", "-q", "-m", "a"]);
+        for t in ["b\n", "c\n"] {
+            std::fs::write(dir.join("f"), t).unwrap();
+            sh(&["stash", "-q"]);
+        }
+        let repo = Repo::open(&dir, &[]).unwrap();
+        let stashes = repo.locations().stashes;
+        assert_eq!(stashes.len(), 2);
+        assert!(stashes.iter().all(|s| repo.index_of(&s.id).is_some()));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
