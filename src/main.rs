@@ -1339,7 +1339,11 @@ fn line_galley(ui: &egui::Ui, line: &gr::Line, fg: Color32, wrap: f32) -> Arc<Ga
         valign: Align::Center,
         ..Default::default()
     };
-    let byte = |c: usize| line.text.char_indices().nth(c).map_or(line.text.len(), |(b, _)| b);
+    // byte offset of each char, and of the end; looking each up from the
+    // start of the line made a long minified line quadratic
+    let bytes: Vec<usize> =
+        line.text.char_indices().map(|(b, _)| b).chain([line.text.len()]).collect();
+    let byte = |c: usize| bytes[c.min(bytes.len() - 1)];
     let mut job = egui::text::LayoutJob::default();
     let mut at = 0;
     for &(s, e, color) in &line.syntax {
