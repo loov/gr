@@ -322,6 +322,8 @@ impl Repo {
             // --parents makes %P show rewritten parents under path limiting
             "--parents",
             "-z",
+            // log.showSignature prints the check before each signed record
+            "--no-show-signature",
             "--encoding=UTF-8",
             // raw times: formatting them here is cheaper than git's format-local
             "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%cn%x1f%ce%x1f%ct%x1f%B",
