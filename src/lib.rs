@@ -494,7 +494,7 @@ impl Repo {
     /// for a removed line.
     pub fn origin(&self, row: usize, file: &str, line: &Line) -> Result<usize, String> {
         let c = &self.commits[row];
-        let (rev, n) = match (line.kind, c.id()) {
+        let (rev, n, file) = match (line.kind, c.id()) {
             (_, _) if line.old == 0 && line.new == 0 => {
                 return Err("no line numbers in this diff".into())
             }
@@ -502,17 +502,34 @@ impl Repo {
                 return Err("the line is not committed yet".into())
             }
             // the old side of the work tree and index diffs, near enough
-            (_, UNCOMMITTED_ID | INDEX_ID) => ("HEAD".to_string(), line.old),
-            (Kind::Del, id) => (format!("{id}^"), line.old),
-            (_, id) => (id.to_string(), line.new),
+            (_, UNCOMMITTED_ID | INDEX_ID) => ("HEAD".to_string(), line.old, file.to_string()),
+            (Kind::Del, id) => (format!("{id}^"), line.old, self.old_path(id, file)),
+            (_, id) => (id.to_string(), line.new, file.to_string()),
         };
         let range = format!("{n},{n}");
         // blame takes a plain path, not :(top), so run it from the top
-        let out = git(&self.dir, &["blame", "--porcelain", "-L", &range, &rev, "--", file])
+        let out = git(&self.dir, &["blame", "--porcelain", "-L", &range, &rev, "--", &file])
             .map_err(|e| e.to_string())?;
         let id = out.split(' ').next().unwrap_or("");
         self.index_of(id)
             .ok_or_else(|| format!("{} is not in this view", id.get(..12).unwrap_or(id)))
+    }
+
+    /// The name `file` had in the parent of commit `id`, when the diff (run
+    /// as `details` runs it, with -C) shows it renamed or copied.
+    fn old_path(&self, id: &str, file: &str) -> String {
+        let mut a =
+            vec!["diff-tree", "-r", "-C", "--no-commit-id", "--name-status", "-z", id, "--"];
+        a.extend(self.paths.iter().map(String::as_str));
+        let out = git(&self.cwd, &a).unwrap_or_default();
+        // "<status>\0<path>\0", with a second path after R and C statuses
+        let mut f = out.split('\0');
+        while let (Some(status), Some(path)) = (f.next(), f.next()) {
+            if status.starts_with(['R', 'C']) && f.next() == Some(file) {
+                return path.to_string();
+            }
+        }
+        file.to_string()
     }
 
     /// The row in `repo`, a reloaded copy of this one, to select in place of
@@ -1262,6 +1279,23 @@ mod tests {
         assert_eq!(repo.carry_tag(&mut notes, "ok", &copies).unwrap(), 1);
         assert!(!notes.has(&old, "ok"));
         assert_eq!(copies.iter().filter(|id| notes.has(id, "ok")).count(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn origin_of_removed_line_in_renamed_file() {
+        let (dir, sh) = scratch("origin-mv");
+        std::fs::write(dir.join("old.txt"), "1\n2\n3\n4\n5\n6\n").unwrap();
+        sh(&["add", "old.txt"]);
+        sh(&["commit", "-q", "-m", "a"]);
+        sh(&["mv", "old.txt", "new.txt"]);
+        std::fs::write(dir.join("new.txt"), "1\n2\n3\n4\n5\nsix\n").unwrap();
+        sh(&["commit", "-q", "-am", "b"]);
+        let repo = Repo::open(&dir, &[]).unwrap();
+        let row = |s: &str| repo.commits.iter().position(|c| c.subject() == s).unwrap();
+        let d = repo.details(row("b"), &DiffOpts::default());
+        let line = d.lines.iter().find(|l| l.text == "-6").unwrap();
+        assert_eq!(repo.origin(row("b"), "new.txt", line), Ok(row("a")));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
