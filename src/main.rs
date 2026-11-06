@@ -21,6 +21,8 @@ const LIST_H: f32 = 2.0 * ROW_H;
 const LANE_W: f32 = 9.0;
 const ID_EDIT: &str = "commit_id";
 const FIND_EDIT: &str = "find";
+/// The file list floating over the diff.
+const FILES: &str = "files";
 
 fn rgb(c: Rgb) -> Color32 {
     Color32::from_rgb(c[0], c[1], c[2])
@@ -131,9 +133,10 @@ struct App {
     details: Details,
     split: bool,
     /// Top of each shown line in the wrapped diff, and the total height;
-    /// laid out for `layout_w`.
+    /// laid out for `layout`: the width, and the height and wrap width in
+    /// chars of the lines beside the file list.
     ys: Vec<f32>,
-    layout_w: f32,
+    layout: Option<(f32, f32, usize)>,
     /// Height of the diff's content: the lines, and room below them to
     /// scroll the last file to the top.
     diff_total: f32,
@@ -205,7 +208,7 @@ impl App {
             details: Default::default(),
             split: false,
             ys: vec![],
-            layout_w: 0.0,
+            layout: None,
             diff_total: 0.0,
             files_cur: 0,
             files_off: 0.0,
@@ -267,7 +270,7 @@ impl App {
     fn show_details(&mut self) {
         self.details = if self.split { self.raw.clone().split() } else { self.raw.clone() };
         // laid out again on the next frame
-        self.layout_w = 0.0;
+        self.layout = None;
         // the lines it points at are gone
         self.diff_sel = None;
         self.diff_menu = None;
@@ -821,15 +824,30 @@ impl App {
             self.diff_goto = self.details.files.get(file).map(|f| f.1).or(self.diff_goto);
         }
         let (full, half) = (wrap_cols(w, char_w), wrap_cols(w / 2.0, char_w));
-        if self.layout_w != w {
-            self.layout_w = w;
+        // lines that start beside the file list, where it sits with the diff
+        // scrolled to the top, wrap short of it; as of the last frame
+        let area = ui.ctx().memory(|m| m.area_rect(Id::unique(FILES)));
+        let (beside_h, beside) = area
+            .filter(|_| !self.details.files.is_empty())
+            .map(|r| {
+                let left = ui.max_rect().left();
+                (r.bottom() - ui.max_rect().top(), wrap_cols(r.left() - 8.0 - left, char_w))
+            })
+            .unwrap_or((0.0, full));
+        let key = Some((w, beside_h, beside));
+        if self.layout != key {
+            if self.layout.is_some_and(|(lw, ..)| lw == w) {
+                // the file list moved; lay out again once it settles
+                ui.ctx().request_repaint();
+            }
+            self.layout = key;
             let rows = |l: &gr::Line, cols: usize| l.text.chars().count().div_ceil(cols).max(1);
             let mut y = 0.0;
             self.ys = Vec::with_capacity(self.details.lines.len() + 1);
             for l in &self.details.lines {
                 self.ys.push(y);
                 let n = match &l.right {
-                    None => rows(l, full),
+                    None => rows(l, if y < beside_h { beside } else { full }),
                     Some(r) => rows(l, half).max(rows(r, half)),
                 };
                 y += n as f32 * ROW_H;
@@ -873,7 +891,8 @@ impl App {
             if lines.is_empty() {
                 return;
             }
-            let hit = |p: Pos2, side| diff_hit(lines, ys, p - top, w, char_w, (full, half), side);
+            let wrap = |i: usize| if ys[i] < beside_h { beside } else { full };
+            let hit = |p: Pos2, side| diff_hit(lines, ys, p - top, w, char_w, (&wrap, half), side);
             let side_at = |p: Pos2| usize::from(split && p.x - top.x >= w / 2.0);
             let resp = ui.interact(
                 Rect::from_min_size(top, Vec2::new(w, height)),
@@ -970,7 +989,7 @@ impl App {
                 );
                 // a column per side: its rect, line and wrap width in chars
                 let cols: Vec<(Rect, &gr::Line, usize)> = match &line.right {
-                    None => vec![(rect, line, full)],
+                    None => vec![(rect, line, wrap(i))],
                     Some(right) => {
                         let mid = rect.left() + w / 2.0;
                         vec![
@@ -1050,7 +1069,7 @@ impl App {
         let w = (widest + 8.0).min(diff.width() * 0.4);
         // clear of the diff's vertical scroll bar
         let pos = diff.right_top() + Vec2::new(-18.0, 6.0);
-        let id = Id::unique("files");
+        let id = Id::unique(FILES);
         // see-through once the diff scrolls under it, solid again under the pointer
         let hovered = ctx
             .memory(|m| m.area_rect(id))
@@ -1330,14 +1349,15 @@ fn side_line(row: &gr::Line, side: usize) -> &gr::Line {
 }
 
 /// The place in the diff at `at`, an offset from its top-left, on `side`;
-/// `cols` holds the wrap width in chars of a full and a half line.
+/// `cols` holds the wrap width in chars of a line that spans both sides,
+/// by line, and of a half line.
 fn diff_hit(
     lines: &[gr::Line],
     ys: &[f32],
     at: Vec2,
     w: f32,
     char_w: f32,
-    cols: (usize, usize),
+    cols: (&dyn Fn(usize) -> usize, usize),
     side: usize,
 ) -> TextPos {
     let last = lines.len() - 1;
@@ -1352,7 +1372,7 @@ fn diff_hit(
         return TextPos { line: last, ch: n };
     }
     let (cols, x0) = match row.right {
-        None => (cols.0, 0.0),
+        None => (cols.0(i), 0.0),
         Some(_) => (cols.1, side as f32 * w / 2.0),
     };
     let col = ((at.x - x0 - LINE_PAD) / char_w).round().clamp(0.0, cols as f32) as usize;
@@ -1923,7 +1943,7 @@ mod tests {
         assert!(old.contains("lib.rs") && new.contains("lib.rs"));
 
         let ys: Vec<f32> = (0..=lines.len()).map(|i| i as f32 * ROW_H).collect();
-        let hit = |y| diff_hit(&lines, &ys, Vec2::new(0.0, y), 800.0, 7.0, (100, 50), 0);
+        let hit = |y| diff_hit(&lines, &ys, Vec2::new(0.0, y), 800.0, 7.0, (&|_| 100, 50), 0);
         assert_eq!(hit(-5.0), TextPos { line: 0, ch: 0 });
         assert_eq!(hit(1e6).line, lines.len() - 1);
         assert_eq!(hit(ROW_H * 1.5).line, 1);
