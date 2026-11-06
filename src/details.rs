@@ -74,6 +74,9 @@ pub struct Details {
     pub lines: Vec<Line>,
     /// ("Comments", 0) followed by each changed file and the line where its diff starts.
     pub files: Vec<(String, usize)>,
+    /// The name each of `files` had in the parent: the same name unless
+    /// the diff renamed or copied it.
+    pub old_names: Vec<String>,
 }
 
 impl Details {
@@ -144,7 +147,7 @@ impl Details {
         }
         row_of[n] = out.len();
         let files = self.files.into_iter().map(|(name, l)| (name, row_of[l])).collect();
-        Details { lines: out, files }
+        Details { lines: out, files, old_names: self.old_names }
     }
 
     /// Index into `files` of the file shown at `line` (for scroll sync).
@@ -222,9 +225,20 @@ fn expand_tabs(s: &str, prefix: usize) -> String {
 struct Builder {
     lines: Vec<Line>,
     files: Vec<(String, usize)>,
+    old_names: Vec<String>,
 }
 
 impl Builder {
+    fn new() -> Builder {
+        Builder {
+            lines: vec![],
+            files: vec![("Comments".into(), 0)],
+            old_names: vec![String::new()],
+        }
+    }
+    fn finish(self) -> Details {
+        Details { lines: self.lines, files: self.files, old_names: self.old_names }
+    }
     fn push(&mut self, text: impl Into<String>, kind: Kind) {
         self.push_styled(text.into(), kind, style_for(kind, false, None), vec![]);
     }
@@ -255,6 +269,7 @@ impl Builder {
     fn start_file(&mut self, name: &str) {
         self.push("", Kind::Plain);
         self.files.push((name.to_string(), self.lines.len()));
+        self.old_names.push(name.to_string());
         self.push(Self::file_sep(name), Kind::FileSep);
     }
     fn rename_file(&mut self, name: &str) {
@@ -399,7 +414,17 @@ fn parse_diff(b: &mut Builder, diff: &str) {
             {
                 b.rename_file(&unquote(n));
             }
-            if line.starts_with("--- ") {
+            let old = b.old_names.last_mut().expect("Comments is always there");
+            if let Some(n) =
+                line.strip_prefix("rename from ").or_else(|| line.strip_prefix("copy from "))
+            {
+                *old = unquote(n);
+            }
+            if let Some(n) = line.strip_prefix("--- ") {
+                let n = unquote(n.trim_end_matches('\t'));
+                if let Some(n) = n.strip_prefix("a/") {
+                    *old = n.to_string();
+                }
                 continue;
             }
             if let Some(n) = line.strip_prefix("+++ ") {
@@ -461,7 +486,7 @@ impl Repo {
     // Runs git synchronously on selection; move to a thread if huge diffs stall the UI.
     pub fn details(&self, row: usize, opts: &DiffOpts) -> Details {
         let c = &self.commits[row];
-        let mut b = Builder { lines: vec![], files: vec![("Comments".into(), 0)] };
+        let mut b = Builder::new();
         let ctx = format!("-U{}", opts.context);
         let mut diff_args: Vec<&str> = vec!["-p", "--textconv", "--submodule", &ctx];
         // copy detection against each parent makes a combined diff, which
@@ -509,7 +534,7 @@ impl Repo {
         if opts.syntax {
             decorate::syntax(&mut b.lines, &b.files);
         }
-        Details { lines: b.lines, files: b.files }
+        b.finish()
     }
 
     /// Author, parents, children, branches, tags and the message.
@@ -667,7 +692,7 @@ fn list(names: &[&str]) -> (String, usize) {
 mod tests {
     #[test]
     fn syntax_keeps_sides_apart() {
-        let mut b = Builder { lines: vec![], files: vec![("Comments".into(), 0)] };
+        let mut b = Builder::new();
         b.start_file("a.rs");
         for (t, k) in
             [("@@", Kind::Hunk), ("-/*", Kind::Del), ("+fn", Kind::Add), (" fn", Kind::Context)]
@@ -684,7 +709,7 @@ mod tests {
 
     #[test]
     fn split_pairs_lines() {
-        let mut b = Builder { lines: vec![], files: vec![("Comments".into(), 0)] };
+        let mut b = Builder::new();
         b.start_file("f");
         for (t, k) in [
             ("@@", Kind::Hunk),
@@ -697,7 +722,7 @@ mod tests {
         ] {
             b.push(t, k);
         }
-        let d = Details { lines: b.lines, files: b.files }.split();
+        let d = b.finish().split();
         let rows: Vec<(String, Option<String>)> = d
             .lines
             .iter()
@@ -723,7 +748,7 @@ mod tests {
     use super::*;
 
     fn build(diff: &str) -> Builder {
-        let mut b = Builder { lines: vec![], files: vec![("Comments".into(), 0)] };
+        let mut b = Builder::new();
         parse_diff(&mut b, diff);
         b
     }
@@ -795,6 +820,7 @@ mod tests {
         assert_eq!(b.files[1].0, "b");
         assert!(b.lines[b.files[1].1].text.contains(" b "));
         assert_eq!(b.files[2].0, "m.txt");
+        assert_eq!(b.old_names, ["", "a", "m.txt"]);
         let n = b.lines.len();
         assert_eq!((b.lines[n - 3].kind, b.lines[n - 3].style.fg), (Kind::Del, merge_color(0)));
         assert_eq!((b.lines[n - 2].kind, b.lines[n - 2].style.fg), (Kind::Add, merge_color(0)));
@@ -807,6 +833,9 @@ mod tests {
         assert_eq!(git_diff_name("a/x b/ 中中"), "x b/ 中中");
         let b = build("diff --git a/x b/ 中中\nrename from x\nrename to  中中\n");
         assert_eq!(b.files[1].0, " 中中");
+        assert_eq!(b.old_names[1], "x");
+        let b = build("diff --git a/x b/y\n--- \"a/\\303\\251\"\n+++ b/y\n");
+        assert_eq!((b.files[1].0.as_str(), b.old_names[1].as_str()), ("y", "\u{e9}"));
         let b = build("diff --git a/a b b/a b\n--- a/a b\t\n+++ b/a b\t\n@@ -1 +1 @@\n-x\n+y\n");
         assert_eq!(b.files[1].0, "a b");
     }
