@@ -178,13 +178,13 @@ struct App {
     /// The file whose history is shown, and the log arguments before.
     file_hist: Option<(String, Vec<String>)>,
     /// A reload running in the background.
-    loading: Option<std::thread::JoinHandle<std::io::Result<Repo>>>,
+    loading: Option<std::thread::JoinHandle<std::io::Result<(Repo, Locations)>>>,
     ctx: egui::Context,
 }
 
 impl App {
     fn new(
-        repo: Repo,
+        (repo, locs): (Repo, Locations),
         native: Option<menu::Native>,
         settings: settings::Settings,
         ctx: &egui::Context,
@@ -199,7 +199,7 @@ impl App {
             Err(e) => (Annotations::default(), format!("gr.info: {e}")),
         };
         let mut app = App {
-            locs: repo.locations(),
+            locs,
             notes,
             repo,
             sel,
@@ -333,7 +333,7 @@ impl App {
         }
         let ctx = self.ctx.clone();
         self.loading = Some(std::thread::spawn(move || {
-            let r = job();
+            let r = job().map(with_locations);
             ctx.request_repaint();
             r
         }));
@@ -349,15 +349,15 @@ impl App {
             .unwrap()
             .join()
             .unwrap_or_else(|_| Err(std::io::Error::other("load thread panicked")));
-        match res.map(|repo| {
+        match res.map(|(repo, locs)| {
             let row = self.repo.place(&repo, self.sel);
-            (repo, row)
+            (repo, locs, row)
         }) {
-            Ok((repo, row)) => {
+            Ok((repo, locs, row)) => {
                 let old = std::mem::replace(&mut self.repo, repo);
                 let new = &self.repo;
                 self.history.remap(|r| old.commits.get(r).and_then(|c| new.index_of(c.id())));
-                self.locs = self.repo.locations();
+                self.locs = locs;
                 // select clears the status, but a failed git command
                 // reports through it just before this reload
                 let status = std::mem::take(&mut self.status);
@@ -1675,10 +1675,17 @@ impl eframe::App for App {
 }
 
 /// The app, or the history still loading at startup.
+/// `repo` with its branch locations, read on the loading thread: they walk
+/// the base branch's history.
+fn with_locations(repo: Repo) -> (Repo, Locations) {
+    let locs = repo.locations();
+    (repo, locs)
+}
+
 enum Gr {
     Loading(
         Option<(
-            std::thread::JoinHandle<std::io::Result<Repo>>,
+            std::thread::JoinHandle<std::io::Result<(Repo, Locations)>>,
             Option<menu::Native>,
             settings::Settings,
         )>,
@@ -1710,9 +1717,9 @@ impl eframe::App for Gr {
             let (job, native, settings) = slot.take().expect("checked to be finished above");
             match job.join().unwrap_or_else(|_| Err(std::io::Error::other("load thread panicked")))
             {
-                Ok(repo) => {
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Title(repo.title()));
-                    *self = Gr::Ready(Box::new(App::new(repo, native, settings, ui.ctx())));
+                Ok(loaded) => {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Title(loaded.0.title()));
+                    *self = Gr::Ready(Box::new(App::new(loaded, native, settings, ui.ctx())));
                 }
                 Err(e) => {
                     eprintln!("gr: {e}");
@@ -1765,7 +1772,7 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let dir = args.next().unwrap_or_else(|| ".".into());
     let log_args: Vec<String> = args.collect();
-    let loading = std::thread::spawn(move || Repo::open(&dir, &log_args));
+    let loading = std::thread::spawn(move || Repo::open(&dir, &log_args).map(with_locations));
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("gr")
@@ -1852,7 +1859,7 @@ mod tests {
         notes.toggle(&topic_id, "ok").unwrap();
         let mut harness = Harness::builder()
             .with_size([1600.0, 470.0])
-            .build_eframe(|cc| App::new(repo, None, init(cc, false), &cc.egui_ctx));
+            .build_eframe(|cc| App::new(with_locations(repo), None, init(cc, false), &cc.egui_ctx));
         for (pref, name) in
             [(egui::ThemePreference::Light, "light"), (egui::ThemePreference::Dark, "dark")]
         {
@@ -1890,7 +1897,7 @@ mod tests {
         let repo = Repo::open(&dir, &[]).unwrap();
         let mut harness = Harness::builder()
             .with_size([1600.0, 470.0])
-            .build_eframe(|cc| App::new(repo, None, init(cc, false), &cc.egui_ctx));
+            .build_eframe(|cc| App::new(with_locations(repo), None, init(cc, false), &cc.egui_ctx));
         harness.run();
         // the v1.0 label in the list and the topic row in the sidebar, as in
         // the light snapshot
@@ -1960,7 +1967,7 @@ mod tests {
         let repo = Repo::open(&dir, &[]).unwrap();
         let mut harness = Harness::builder()
             .with_size([1600.0, 470.0])
-            .build_eframe(|cc| App::new(repo, None, init(cc, false), &cc.egui_ctx));
+            .build_eframe(|cc| App::new(with_locations(repo), None, init(cc, false), &cc.egui_ctx));
         harness.run();
         harness.key_press(Key::G);
         harness.run();
@@ -1984,7 +1991,7 @@ mod tests {
         let repo = Repo::open(&dir, &[]).unwrap();
         let mut harness = Harness::builder()
             .with_size([1600.0, 470.0])
-            .build_eframe(|cc| App::new(repo, None, init(cc, false), &cc.egui_ctx));
+            .build_eframe(|cc| App::new(with_locations(repo), None, init(cc, false), &cc.egui_ctx));
         harness.run();
         harness.state_mut().select(2);
         harness.state_mut().status = "fatal: no upstream".into();
