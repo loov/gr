@@ -334,7 +334,7 @@ impl Repo {
         };
         let revs: Vec<&str> =
             revs.iter().map(String::as_str).filter(|a| !breaks_parsing(a)).collect();
-        let default_revs = revs.iter().all(|a| a.starts_with('-'));
+        let default_revs = !selects_revs(&revs);
         if default_revs {
             args.push("--all");
         }
@@ -837,6 +837,28 @@ fn breaks_parsing(arg: &str) -> bool {
     EXACT.contains(&arg) || PREFIX.iter().any(|p| arg.starts_with(p))
 }
 
+/// Whether git log `args` name revisions to start from, so `--all` is not
+/// to be added.
+fn selects_revs(args: &[&str]) -> bool {
+    const SELECTORS: &[&str] = &["--all", "--branches", "--tags", "--remotes", "--glob"];
+    // options whose value may be the next word
+    const VALUED: &[&str] = &[
+        "-n", "--max-count", "--skip", "--since", "--after", "--until", "--before", "--max-age",
+        "--min-age", "--author", "--committer", "--grep", "--grep-reflog", "--exclude", "-S", "-G",
+        "-O", "-L", "--diff-filter",
+    ];
+    let mut args = args.iter();
+    while let Some(a) = args.next() {
+        if !a.starts_with('-') || SELECTORS.contains(&a.split('=').next().unwrap_or(a)) {
+            return true;
+        }
+        if VALUED.contains(a) {
+            args.next();
+        }
+    }
+    false
+}
+
 fn is_id(s: &str) -> bool {
     matches!(s.len(), 40 | 64) && s.bytes().all(|b| b.is_ascii_hexdigit())
 }
@@ -1039,6 +1061,18 @@ mod tests {
         let r = Repo::open(dir, &["-U1".into(), "--stat".into()]).unwrap();
         assert_eq!(r.commits.len(), n);
         assert!(r.commits.iter().all(|c| is_id(c.id())));
+    }
+
+    #[test]
+    fn revision_selectors() {
+        let sel =
+            |a: &str| selects_revs(&a.split(' ').filter(|w| !w.is_empty()).collect::<Vec<_>>());
+        for a in ["main", "--branches=a", "--tags", "--remotes=x", "--glob=r*", "--all", "-n 5 x"] {
+            assert!(sel(a), "{a}");
+        }
+        for a in ["", "--author t", "-n 5", "--grep x", "--since x --topo-order", "--author=t"] {
+            assert!(!sel(a), "{a}");
+        }
     }
 
     #[test]
