@@ -297,6 +297,10 @@ impl App {
 
     /// Shows only the commits that touched `file`, or everything again with None.
     fn file_history(&mut self, file: Option<String>) {
+        // load would drop the job, leaving file_hist naming a view not shown
+        if self.loading.is_some() {
+            return;
+        }
         let args = match (&file, self.file_hist.take()) {
             (Some(f), prev) => {
                 let all = prev.map_or_else(|| self.repo.log_args().to_vec(), |(_, a)| a);
@@ -338,10 +342,15 @@ impl App {
             (repo, row)
         }) {
             Ok((repo, row)) => {
-                self.repo = repo;
+                let old = std::mem::replace(&mut self.repo, repo);
+                let new = &self.repo;
+                self.history.remap(|r| old.commits.get(r).and_then(|c| new.index_of(c.id())));
                 self.locs = self.repo.locations();
-                self.history = History::default();
+                // select clears the status, but a failed git command
+                // reports through it just before this reload
+                let status = std::mem::take(&mut self.status);
                 self.select(row);
+                self.status = status;
                 match self.repo.annotations() {
                     Ok(n) => {
                         self.notes = n;
@@ -1522,7 +1531,8 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll_job();
         self.poll_reload();
-        if self.watch.changed() && self.job.is_none() {
+        // changed() clears the flag, so leave it set until a reload can start
+        if self.loading.is_none() && self.job.is_none() && self.watch.changed() {
             self.reload();
         }
         self.keys(ui.ctx());
@@ -1889,6 +1899,29 @@ mod tests {
         harness.key_press(Key::ArrowDown);
         harness.run();
         assert_eq!(harness.state().sel, 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn reload_keeps_history_and_status() {
+        let dir = sample_repo("reload-hist");
+        let repo = Repo::open(&dir, &[]).unwrap();
+        let mut harness = Harness::builder()
+            .with_size([1600.0, 470.0])
+            .build_eframe(|cc| App::new(repo, None, init(cc, false), &cc.egui_ctx));
+        harness.run();
+        harness.state_mut().select(2);
+        harness.state_mut().status = "fatal: no upstream".into();
+        harness.state_mut().reload();
+        while harness.state().loading.is_some() {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            harness.step();
+        }
+        assert_eq!(harness.state().sel, 2);
+        assert!(harness.state().history.can_back(), "reload cleared the history");
+        assert_eq!(harness.state().status, "fatal: no upstream");
+        harness.state_mut().back();
+        assert_eq!(harness.state().sel, 0);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

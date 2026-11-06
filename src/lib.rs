@@ -969,6 +969,18 @@ impl History {
     pub fn can_forward(&self) -> bool {
         self.pos < self.items.len()
     }
+    /// Moves each entry to the row `row` gives for it, as after a reload,
+    /// and drops the entries it gives none for.
+    pub fn remap(&mut self, row: impl Fn(usize) -> Option<usize>) {
+        let (mut items, mut pos) = (vec![], 0);
+        for (i, v) in self.items.iter().enumerate() {
+            if let Some(r) = row(v.row) {
+                items.push(Visit { row: r, ..*v });
+                pos += usize::from(i < self.pos);
+            }
+        }
+        (self.items, self.pos) = (items, pos);
+    }
 }
 
 #[cfg(test)]
