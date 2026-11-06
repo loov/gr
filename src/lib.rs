@@ -689,7 +689,7 @@ impl Repo {
         for (id, pid) in self.patch_ids(&bare.iter().map(String::as_str).collect::<Vec<_>>()) {
             notes.set_value(&id, "patch-id", Some(&pid))?;
         }
-        let gone: HashMap<String, String> = notes
+        let mut gone: HashMap<String, String> = notes
             .with_tag(tag)
             .filter(|id| self.index_of(id).is_none())
             .filter_map(|id| Some((notes.value(id, "patch-id")?.to_string(), id.to_string())))
@@ -700,11 +700,11 @@ impl Repo {
         let todo: Vec<&str> = candidates.iter().copied().filter(|id| !notes.has(id, tag)).collect();
         let mut moved = 0;
         for (id, pid) in self.patch_ids(&todo) {
-            if let Some(old) = gone.get(&pid) {
+            if let Some(old) = gone.remove(&pid) {
                 notes.toggle(&id, tag)?;
                 notes.set_value(&id, "patch-id", Some(&pid))?;
-                notes.toggle(old, tag)?;
-                notes.set_value(old, "patch-id", None)?;
+                notes.toggle(&old, tag)?;
+                notes.set_value(&old, "patch-id", None)?;
                 moved += 1;
             }
         }
@@ -1228,6 +1228,32 @@ mod tests {
         assert_eq!(repo.carry_tag(&mut notes, "ok", &own).unwrap(), 1);
         assert!(notes.has(&new, "ok") && !notes.has(&old, "ok"));
         assert_eq!(repo.carry_tag(&mut notes, "ok", &own).unwrap(), 0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn mark_moves_to_one_of_two_copies() {
+        let (dir, sh) = scratch("carry2");
+        sh(&["commit", "-q", "--allow-empty", "-m", "root"]);
+        std::fs::write(dir.join("b"), "b\n").unwrap();
+        sh(&["add", "b"]);
+        sh(&["commit", "-q", "-m", "work"]);
+        let repo = Repo::open(&dir, &[]).unwrap();
+        let mut notes = repo.annotations().unwrap();
+        let old = repo.heads["main"].clone();
+        notes.toggle(&old, "ok").unwrap();
+        repo.carry_tag(&mut notes, "ok", &[]).unwrap();
+        // the commit is gone and two branches carry copies of it
+        for (b, date) in [("x", "2001-01-01"), ("y", "2002-01-01")] {
+            sh(&["checkout", "-q", "-b", b, "main"]);
+            sh(&["commit", "-q", "--amend", "--no-edit", &format!("--date={date}")]);
+        }
+        sh(&["branch", "-q", "-f", "main", "main^"]);
+        let repo = Repo::open(&dir, &[]).unwrap();
+        let copies = [repo.heads["x"].as_str(), repo.heads["y"].as_str()];
+        assert_eq!(repo.carry_tag(&mut notes, "ok", &copies).unwrap(), 1);
+        assert!(!notes.has(&old, "ok"));
+        assert_eq!(copies.iter().filter(|id| notes.has(id, "ok")).count(), 1);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
