@@ -795,7 +795,11 @@ impl App {
                         now,
                     )
                 });
-                let resp = row.response();
+                let mut resp = row.response();
+                if label.is_some() {
+                    let tip = settings::keys(&resp.ctx, "Cmd+click to copy the name");
+                    resp = resp.on_hover_text(tip);
+                }
                 if resp.clicked() {
                     match label.filter(|_| resp.ctx.input(|i| i.modifiers.command)) {
                         Some(name) => resp.ctx.copy_text(name.to_string()),
@@ -1627,7 +1631,7 @@ impl eframe::App for App {
                     ui.label(RichText::new(group).strong());
                     egui::Grid::new(group).num_columns(2).spacing([24.0, 4.0]).show(ui, |ui| {
                         for (k, what) in keys {
-                            ui.label(RichText::new(*k).monospace());
+                            ui.label(RichText::new(settings::keys(ui.ctx(), k)).monospace());
                             ui.label(*what);
                             ui.end_row();
                         }

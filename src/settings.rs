@@ -296,6 +296,16 @@ impl Settings {
 
 /// A titled settings row with its control on the right; the text wraps in
 /// the width the control leaves. A returned control is named by the title.
+/// `text` with "Cmd" spelled as the platform names the command key:
+/// egui's COMMAND modifier is Ctrl off macOS.
+pub fn keys(ctx: &egui::Context, text: &str) -> String {
+    if ctx.os() == egui::os::OperatingSystem::Mac {
+        text.to_string()
+    } else {
+        text.replace("Cmd", "Ctrl")
+    }
+}
+
 fn row(
     ui: &mut egui::Ui,
     (title, desc): (&str, &str),
@@ -309,7 +319,7 @@ fn row(
             ui.add_space(16.0);
             ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
                 let label = ui.label(RichText::new(title).size(15.0).strong());
-                ui.label(RichText::new(desc).weak());
+                ui.label(RichText::new(keys(ui.ctx(), desc)).weak());
                 if let Some(r) = r {
                     r.labelled_by(label.id);
                 }
