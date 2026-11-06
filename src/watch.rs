@@ -52,7 +52,8 @@ fn fingerprint(dir: &Path, common: &Path) -> u64 {
     let mut h = DefaultHasher::new();
     let mut files: Vec<PathBuf> =
         vec![dir.join("HEAD"), dir.join("index"), common.join("packed-refs")];
-    let mut stack = vec![common.join("refs")];
+    // reftable repositories keep refs in reftable/, HEAD in the worktree's
+    let mut stack = vec![common.join("refs"), common.join("reftable"), dir.join("reftable")];
     while let Some(d) = stack.pop() {
         for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
             let p = e.path();
@@ -84,7 +85,11 @@ mod tests {
         let a = fingerprint(&dir, &dir);
         assert_eq!(a, fingerprint(&dir, &dir));
         std::fs::write(dir.join("refs/heads/main"), "0\n").unwrap();
-        assert_ne!(a, fingerprint(&dir, &dir));
+        let b = fingerprint(&dir, &dir);
+        assert_ne!(a, b);
+        std::fs::create_dir_all(dir.join("reftable")).unwrap();
+        std::fs::write(dir.join("reftable/tables.list"), "0x1.ref\n").unwrap();
+        assert_ne!(b, fingerprint(&dir, &dir));
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
