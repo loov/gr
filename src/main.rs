@@ -151,6 +151,8 @@ struct App {
     /// File list row at the top of the diff, and the list's scroll offset.
     files_cur: usize,
     files_off: f32,
+    /// Width of the longest file name, measured once per commit.
+    files_widest: Option<f32>,
     /// Diff line to scroll to once the diff is laid out.
     diff_goto: Option<usize>,
     /// Text selected in the diff.
@@ -222,6 +224,7 @@ impl App {
             diff_total: 0.0,
             files_cur: 0,
             files_off: 0.0,
+            files_widest: None,
             diff_goto: None,
             diff_sel: None,
             diff_menu: None,
@@ -281,6 +284,7 @@ impl App {
         self.details = if self.split { self.raw.clone().split() } else { self.raw.clone() };
         // laid out again on the next frame
         self.layout = None;
+        self.files_widest = None;
         // the lines it points at are gone
         self.diff_sel = None;
         self.diff_menu = None;
@@ -1082,14 +1086,16 @@ impl App {
         if files.is_empty() {
             return;
         }
-        let widest = files
-            .iter()
-            .map(|(name, _)| {
-                ctx.fonts_mut(|f| {
-                    f.layout_no_wrap(name.clone(), font(13.0, false), Color32::WHITE).size().x
+        let widest = *self.files_widest.get_or_insert_with(|| {
+            files
+                .iter()
+                .map(|(name, _)| {
+                    ctx.fonts_mut(|f| {
+                        f.layout_no_wrap(name.clone(), font(13.0, false), Color32::WHITE).size().x
+                    })
                 })
-            })
-            .fold(0.0, f32::max);
+                .fold(0.0, f32::max)
+        });
         let w = (widest + 8.0).min(diff.width() * 0.4);
         // clear of the diff's vertical scroll bar
         let pos = diff.right_top() + Vec2::new(-18.0, 6.0);
