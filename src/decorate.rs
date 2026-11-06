@@ -123,9 +123,10 @@ fn tokens(s: &str, from: usize) -> Vec<(usize, usize)> {
 }
 
 /// Code lines coloured per diff. Highlighting runs on the UI thread at
-/// about 20µs a line, so past this a huge diff stays plain instead of
-/// stalling each selection; move it off the thread if that matters.
-const SYNTAX_LINES: usize = 20_000;
+/// selection, about 22µs a line, so this keeps it near 45ms and leaves
+/// the rest of a big diff plain. To colour all of it, highlight lazily
+/// as lines scroll into view, keeping each file's parse state.
+const SYNTAX_LINES: usize = 2_000;
 
 /// bat's grammars; syntect's own set lacks TOML, TypeScript and Kotlin.
 static SYNTAXES: LazyLock<SyntaxSet> = LazyLock::new(two_face::syntax::extra_newlines);
