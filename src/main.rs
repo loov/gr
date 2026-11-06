@@ -136,6 +136,10 @@ struct App {
     layout_w: f32,
     /// Diff line to scroll to once the diff is laid out.
     diff_goto: Option<usize>,
+    /// Text selected in the diff.
+    diff_sel: Option<DiffSel>,
+    /// The diff line and side the context menu was opened on.
+    diff_menu: Option<(usize, usize)>,
     history: History,
     id_text: String,
     status: String,
@@ -197,6 +201,8 @@ impl App {
             ys: vec![],
             layout_w: 0.0,
             diff_goto: None,
+            diff_sel: None,
+            diff_menu: None,
             history: History::default(),
             id_text: String::new(),
             status: String::new(),
@@ -250,6 +256,9 @@ impl App {
         self.details = if self.split { self.raw.clone().split() } else { self.raw.clone() };
         // laid out again on the next frame
         self.layout_w = 0.0;
+        // the lines it points at are gone
+        self.diff_sel = None;
+        self.diff_menu = None;
     }
 
     fn find(&mut self, dir: Dir, wrap: Wrap) {
@@ -810,9 +819,100 @@ impl App {
         let mut link = None;
         let mut origin = None;
         let (lines, ys) = (&self.details.lines, &self.ys);
+        let (sel, menu) = (&mut self.diff_sel, &mut self.diff_menu);
         let out = sa.show_viewport(ui, |ui, view| {
-            ui.set_height(*ys.last().expect("ys ends with the total height"));
+            let height = *ys.last().expect("ys ends with the total height");
+            ui.set_height(height);
             let top = ui.max_rect().min;
+            if lines.is_empty() {
+                return;
+            }
+            let hit = |p: Pos2, side| diff_hit(lines, ys, p - top, w, char_w, (full, half), side);
+            let side_at = |p: Pos2| usize::from(split && p.x - top.x >= w / 2.0);
+            let resp = ui.interact(
+                Rect::from_min_size(top, Vec2::new(w, height)),
+                ui.scope_id().with("diff text"),
+                Sense::click_and_drag(),
+            );
+            if resp.hovered() || resp.dragged() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
+            }
+            let shift = ui.input(|i| i.modifiers.shift);
+            if resp.drag_started() {
+                if let Some(o) = ui.input(|i| i.pointer.press_origin()) {
+                    let side = side_at(o);
+                    match sel {
+                        Some(s) if shift => s.head = hit(o, s.side),
+                        _ => {
+                            let at = hit(o, side);
+                            *sel = Some(DiffSel { side, anchor: at, head: at });
+                        }
+                    }
+                }
+            }
+            if let (true, Some(s), Some(p)) =
+                (resp.dragged(), sel.as_mut(), resp.interact_pointer_pos())
+            {
+                s.head = hit(p, s.side);
+                // past the top or bottom edge, scroll toward the pointer
+                let clip = ui.clip_rect();
+                let dy = if p.y < clip.top() {
+                    clip.top() - p.y
+                } else if p.y > clip.bottom() {
+                    clip.bottom() - p.y
+                } else {
+                    0.0
+                };
+                if dy != 0.0 {
+                    ui.scroll_with_delta(Vec2::new(0.0, dy * 0.3));
+                    ui.ctx().request_repaint();
+                }
+            }
+            if let (true, Some(p)) = (resp.clicked(), resp.interact_pointer_pos()) {
+                match sel {
+                    Some(s) if shift => s.head = hit(p, s.side),
+                    _ => *sel = None,
+                }
+            }
+            if let (true, Some(p)) = (resp.double_clicked(), resp.interact_pointer_pos()) {
+                let side = side_at(p);
+                let at = hit(p, side);
+                let (a, b) = word_at(side_line(&lines[at.line], side), at.ch);
+                *sel = Some(DiffSel {
+                    side,
+                    anchor: TextPos { line: at.line, ch: a },
+                    head: TextPos { line: at.line, ch: b },
+                });
+            }
+            if let (true, Some(p)) = (resp.secondary_clicked(), resp.interact_pointer_pos()) {
+                *menu = Some((hit(p, side_at(p)).line, side_at(p)));
+            }
+            let copy = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Copy)));
+            if copy && !ui.ctx().egui_wants_keyboard_input() {
+                if let Some(s) = sel.as_ref().filter(|s| s.anchor != s.head) {
+                    ui.ctx().copy_text(s.text(lines));
+                }
+            }
+            let menu_line = menu.map(|(i, side)| side_line(&lines[i], side));
+            let numbered = menu_line.is_some_and(|l| l.old > 0 || l.new > 0);
+            let has_sel = sel.is_some_and(|s| s.anchor != s.head);
+            if numbered || has_sel {
+                resp.context_menu(|ui| {
+                    if has_sel && ui.button("Copy").clicked() {
+                        if let Some(s) = sel.as_ref() {
+                            ui.ctx().copy_text(s.text(lines));
+                        }
+                        ui.close();
+                    }
+                    if numbered && ui.button("Show Origin of This Line").clicked() {
+                        if let (Some((i, _)), Some(l)) = (*menu, menu_line) {
+                            origin = Some((i, l.clone()));
+                        }
+                        ui.close();
+                    }
+                });
+            }
+            let hover = resp.hover_pos();
             let first = ys.partition_point(|&y| y <= view.min.y).saturating_sub(1);
             for (i, line) in lines.iter().enumerate().skip(first) {
                 if ys[i] >= view.max.y {
@@ -838,28 +938,14 @@ impl App {
                     }
                 };
                 for (side, (r, l, n)) in cols.into_iter().enumerate() {
-                    // under the label, so text selection still works on the text
-                    let under =
-                        ui.interact(r, ui.scope_id().with(("diff line", i, side)), Sense::click());
-                    // only visible lines are laid out, so an auto id would shift
-                    // with the scroll and move the text selection to another line
-                    let id = ui.scope_id().with(("diff text", i, side));
-                    let resp = draw_line(
-                        &mut ui.new_child(egui::UiBuilder::new().max_rect(r).scope_id(id)),
-                        r,
-                        l,
-                        char_w,
-                        n,
-                    );
-                    if origin_menu(&under, l) || origin_menu(&resp, l) {
-                        origin = Some((i, l.clone()));
-                    }
+                    let chosen = sel.filter(|s| line.right.is_none() || s.side == side);
+                    draw_line(ui, r, l, char_w, n, chosen.and_then(|s| s.chars(i, l)));
                     let over = |pos: Pos2| {
                         l.links.iter().find(|k| {
                             char_rects(r, k.chars.clone(), n, char_w).any(|c| c.contains(pos))
                         })
                     };
-                    if let Some(k) = resp.hover_pos().and_then(over) {
+                    if let Some(k) = hover.filter(|p| r.contains(*p)).and_then(over) {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                         if resp.clicked() {
                             link = Some(k.row);
@@ -1070,35 +1156,21 @@ fn location_tree(
     }
 }
 
-/// Offers "Show Origin of This Line" on a code line; true when picked.
-fn origin_menu(resp: &egui::Response, line: &gr::Line) -> bool {
-    let mut picked = false;
-    if line.old > 0 || line.new > 0 {
-        resp.context_menu(|ui| {
-            if ui.button("Show Origin of This Line").clicked() {
-                picked = true;
-                ui.close();
-            }
-        });
-    }
-    picked
-}
-
 /// Characters that fit across `w`, after the text's left margin.
 fn wrap_cols(w: f32, char_w: f32) -> usize {
     (((w - 8.0) / char_w).floor() as usize).max(8)
 }
 
 /// Paints `line` into `rect`, wrapped at `cols` chars: background, changed
-/// words, then its text as a selectable label, so text can be selected
-/// across lines and copied.
+/// words, the `selected` chars, then its text.
 fn draw_line(
-    ui: &mut egui::Ui,
+    ui: &egui::Ui,
     rect: Rect,
     line: &gr::Line,
     char_w: f32,
     cols: usize,
-) -> egui::Response {
+    selected: Option<std::ops::Range<usize>>,
+) {
     let fg = fg(ui, line.style.fg);
     let p = ui.painter().with_clip_rect(rect);
     let left = rect.left() + LINE_PAD;
@@ -1112,19 +1184,123 @@ fn draw_line(
             }
         }
     }
+    if let Some(r) = selected.filter(|r| !r.is_empty()) {
+        for r in char_rects(rect, r, cols, char_w) {
+            p.rect_filled(r, 0.0, ui.visuals().selection.bg_fill);
+        }
+    }
     let g = line_galley(ui, line, fg, cols as f32 * char_w + 0.5);
-    let size = g.size();
     for link in &line.links {
         let color = link_colour(ui, line, link, fg);
         for r in char_rects(rect, link.chars.clone(), cols, char_w) {
             p.hline(r.x_range(), r.top() + ROW_H / 2.0 + 7.0, Stroke::new(1.0, color));
         }
     }
-    let mut text = ui.new_child(
-        egui::UiBuilder::new().max_rect(Rect::from_min_size(Pos2::new(left, rect.top()), size)),
-    );
-    text.set_clip_rect(rect.intersect(ui.clip_rect()));
-    text.add(egui::Label::new(g).selectable(true))
+    p.galley(Pos2::new(left, rect.top()), g, fg);
+}
+
+/// A place in the diff text: a line and a char in it.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct TextPos {
+    line: usize,
+    ch: usize,
+}
+
+/// Text selected in the diff. It is kept by line, not by widget, because
+/// only the visible lines are laid out; in a split diff it follows one side.
+#[derive(Clone, Copy, Debug)]
+struct DiffSel {
+    side: usize,
+    anchor: TextPos,
+    head: TextPos,
+}
+
+impl DiffSel {
+    fn ordered(&self) -> (TextPos, TextPos) {
+        let (a, b) = (self.anchor, self.head);
+        if (a.line, a.ch) <= (b.line, b.ch) {
+            (a, b)
+        } else {
+            (b, a)
+        }
+    }
+
+    /// The chars selected in `l`, shown at line `i`.
+    fn chars(&self, i: usize, l: &gr::Line) -> Option<std::ops::Range<usize>> {
+        let (s, e) = self.ordered();
+        if i < s.line || i > e.line {
+            return None;
+        }
+        let n = l.text.chars().count();
+        let from = if i == s.line { s.ch.min(n) } else { 0 };
+        let to = if i == e.line { e.ch.min(n) } else { n };
+        Some(from..to.max(from))
+    }
+
+    /// The selected text, a line per diff line.
+    fn text(&self, lines: &[gr::Line]) -> String {
+        let (s, e) = self.ordered();
+        let mut out = vec![];
+        for (i, row) in lines.iter().enumerate().take(e.line + 1).skip(s.line) {
+            let l = side_line(row, self.side);
+            // split rows hold only code lines; a plain one fills the gap
+            // across from a run of adds or deletes
+            if row.right.is_some() && l.kind == gr::Kind::Plain {
+                continue;
+            }
+            let r = self.chars(i, l).unwrap_or_default();
+            out.push(l.text.chars().skip(r.start).take(r.len()).collect::<String>());
+        }
+        out.join("\n")
+    }
+}
+
+/// The line of `row` shown on `side`; a row without a right side spans both.
+fn side_line(row: &gr::Line, side: usize) -> &gr::Line {
+    match &row.right {
+        Some(r) if side == 1 => r,
+        _ => row,
+    }
+}
+
+/// The place in the diff at `at`, an offset from its top-left, on `side`;
+/// `cols` holds the wrap width in chars of a full and a half line.
+fn diff_hit(
+    lines: &[gr::Line],
+    ys: &[f32],
+    at: Vec2,
+    w: f32,
+    char_w: f32,
+    cols: (usize, usize),
+    side: usize,
+) -> TextPos {
+    let last = lines.len() - 1;
+    let i = ys.partition_point(|&y| y <= at.y).saturating_sub(1).min(last);
+    let row = &lines[i];
+    let l = side_line(row, side);
+    let n = l.text.chars().count();
+    if at.y < 0.0 {
+        return TextPos { line: 0, ch: 0 };
+    }
+    if at.y >= ys[last + 1] {
+        return TextPos { line: last, ch: n };
+    }
+    let (cols, x0) = match row.right {
+        None => (cols.0, 0.0),
+        Some(_) => (cols.1, side as f32 * w / 2.0),
+    };
+    let col = ((at.x - x0 - LINE_PAD) / char_w).round().clamp(0.0, cols as f32) as usize;
+    let wrapped = ((at.y - ys[i]) / ROW_H).floor().max(0.0) as usize;
+    TextPos { line: i, ch: (wrapped * cols + col).min(n) }
+}
+
+/// The char range of the word around char `ch` of `l`.
+fn word_at(l: &gr::Line, ch: usize) -> (usize, usize) {
+    let chars: Vec<char> = l.text.chars().collect();
+    let word = |c: &char| c.is_alphanumeric() || *c == '_';
+    let a = chars[..ch.min(chars.len())].iter().rev().take_while(|c| word(c)).count();
+    let b = chars[ch.min(chars.len())..].iter().take_while(|c| word(c)).count();
+    (ch - a, ch + b)
 }
 
 /// Space left of a diff line's text.
@@ -1649,6 +1825,34 @@ mod tests {
             assert!(copied, "cmd-click on {name} copied nothing");
             assert_eq!(harness.state().sel, 0, "cmd-click on {name} also selected");
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn diff_selection_copies_one_side() {
+        let dir = sample_repo("diff-sel");
+        let repo = Repo::open(&dir, &[]).unwrap();
+        let topic =
+            repo.commits.iter().position(|c| c.subject() == "lib: greet more than once").unwrap();
+        let lines = repo.details(topic, &Default::default()).split().lines;
+        let all = |side| DiffSel {
+            side,
+            anchor: TextPos { line: 0, ch: 0 },
+            head: TextPos { line: lines.len() - 1, ch: usize::MAX },
+        };
+        let (old, new) = (all(0).text(&lines), all(1).text(&lines));
+        assert!(old.contains("-fn greet(name: &str) -> String"), "{old}");
+        assert!(!old.contains("times: u32"), "{old}");
+        assert!(new.contains("+fn greet(name: &str, times: u32)"), "{new}");
+        assert!(!new.contains("-fn greet"), "{new}");
+        // both sides keep the lines that span the whole width
+        assert!(old.contains("lib.rs") && new.contains("lib.rs"));
+
+        let ys: Vec<f32> = (0..=lines.len()).map(|i| i as f32 * ROW_H).collect();
+        let hit = |y| diff_hit(&lines, &ys, Vec2::new(0.0, y), 800.0, 7.0, (100, 50), 0);
+        assert_eq!(hit(-5.0), TextPos { line: 0, ch: 0 });
+        assert_eq!(hit(1e6).line, lines.len() - 1);
+        assert_eq!(hit(ROW_H * 1.5).line, 1);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
