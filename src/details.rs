@@ -342,7 +342,9 @@ fn parse_diff(b: &mut Builder, diff: &str) {
     // next old and new line numbers in a single-parent hunk
     let (mut old, mut new) = (0u32, 0u32);
     let mut submodule = String::new();
-    for line in diff.lines() {
+    // not lines(): it drops a trailing \r, and LF -> CRLF would show no change
+    for line in diff.split_terminator('\n') {
+        let (line, cr) = line.strip_suffix('\r').map_or((line, false), |l| (l, true));
         if let Some(rest) = line.strip_prefix("Submodule ") {
             let name = submodule_name(rest);
             if submodule != name {
@@ -400,7 +402,10 @@ fn parse_diff(b: &mut Builder, diff: &str) {
             b.push(line, Kind::FileHeader);
         } else {
             let prefix: String = line.chars().take(nparents).collect();
-            let text = expand_tabs(line, nparents);
+            let mut text = expand_tabs(line, nparents);
+            if cr {
+                text.push_str("^M");
+            }
             let merge = nparents > 1;
             if prefix.len() == nparents && prefix.chars().all(|c| matches!(c, ' ' | '+' | '-'))
                 || line.is_empty()
@@ -732,6 +737,15 @@ mod tests {
         assert_eq!(del.text, "-old \\ No newline at end of file");
         assert_eq!((del.kind, add.kind), (Kind::Del, Kind::Add));
         assert_eq!((del.changed.clone(), add.changed.clone()), (vec![(1, 4)], vec![(1, 4)]));
+    }
+
+    #[test]
+    fn carriage_return_shows() {
+        let mut b = build("diff --git a/c b/c\n--- a/c\n+++ b/c\n@@ -1,2 +1,2 @@\n-x\n+x\r\n y\n");
+        decorate::word_diff(&mut b.lines);
+        let n = b.lines.len();
+        assert_eq!((b.lines[n - 3].text.as_str(), b.lines[n - 2].text.as_str()), ("-x", "+x^M"));
+        assert_eq!(b.lines[n - 2].changed, [(2, 4)]);
     }
 
     #[test]
