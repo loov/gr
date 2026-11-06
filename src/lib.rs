@@ -339,6 +339,8 @@ impl Repo {
             args.push("--all");
         }
         args.extend(revs);
+        // no diff after the message, including the one -L prints
+        args.push("-s");
         args.push("--");
         args.extend(paths.iter().map(String::as_str));
         let reach_job = {
@@ -832,7 +834,8 @@ fn breaks_parsing(arg: &str) -> bool {
     ];
     const PREFIX: &[&str] = &[
         "--pretty", "--format", "--date=", "--color", "--stat", "--decorate=", "-U", "--unified",
-        "--dirstat", "--word-diff", "--diff-merges", "--encoding",
+        "--dirstat", "--word-diff", "--diff-merges", "--encoding", "--line-prefix",
+        "--show-linear",
     ];
     EXACT.contains(&arg) || PREFIX.iter().any(|p| arg.starts_with(p))
 }
@@ -1073,6 +1076,31 @@ mod tests {
         for a in ["", "--author t", "-n 5", "--grep x", "--since x --topo-order", "--author=t"] {
             assert!(!sel(a), "{a}");
         }
+    }
+
+    #[test]
+    fn args_that_add_text() {
+        let (dir, sh) = scratch("addtext");
+        let commit = |t: &str| {
+            std::fs::write(dir.join("f"), t).unwrap();
+            sh(&["add", "f"]);
+            sh(&["commit", "-q", "-m", t]);
+        };
+        commit("a");
+        commit("b");
+        // a side branch, so the history has a linear break
+        sh(&["checkout", "-q", "-b", "side", "HEAD^"]);
+        commit("s");
+        for (a, n) in [
+            (&["main", "-L1,1:f"][..], 2),
+            (&["--show-linear-break"], 3),
+            (&["--line-prefix=X"], 3),
+        ] {
+            let a: Vec<String> = a.iter().map(|s| s.to_string()).collect();
+            let r = Repo::open(&dir, &a).unwrap();
+            assert_eq!(r.commits.len(), n, "{a:?}");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
