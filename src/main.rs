@@ -243,7 +243,10 @@ impl App {
         self.sel = row;
         self.raw = self.repo.details(row, &self.settings.diff);
         self.show_details();
-        self.id_text = self.repo.commits[row].id().to_string();
+        // a reload selects again; keep what is being typed
+        if !self.ctx.memory(|m| m.has_focus(Id::unique(ID_EDIT))) {
+            self.id_text = self.repo.commits[row].id().to_string();
+        }
         self.status.clear();
         self.scroll_list = true;
         self.diff_goto = Some(0);
@@ -470,7 +473,12 @@ impl App {
         let page = ((self.list_h / LIST_H) as usize).saturating_sub(1).max(1);
         let last = self.repo.commits.len().saturating_sub(1);
         let pressed = |k| ctx.input(|i| i.key_pressed(k) && i.modifiers.is_none());
-        if pressed(Key::ArrowUp) {
+        // the arrows still move the list from the find field, but not from
+        // the commit id entry, where they would replace what was typed, nor
+        // from an open combo box
+        let id_edit = ctx.memory(|m| m.has_focus(Id::unique(ID_EDIT)));
+        if id_edit || egui::Popup::is_any_open(ctx) {
+        } else if pressed(Key::ArrowUp) {
             self.select(self.sel.saturating_sub(1));
         } else if pressed(Key::ArrowDown) {
             self.select((self.sel + 1).min(last));
@@ -1857,6 +1865,30 @@ mod tests {
         assert_eq!(hit(-5.0), TextPos { line: 0, ch: 0 });
         assert_eq!(hit(1e6).line, lines.len() - 1);
         assert_eq!(hit(ROW_H * 1.5).line, 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn arrows_leave_the_commit_id_entry_alone() {
+        let dir = sample_repo("id-arrows");
+        let repo = Repo::open(&dir, &[]).unwrap();
+        let mut harness = Harness::builder()
+            .with_size([1600.0, 470.0])
+            .build_eframe(|cc| App::new(repo, None, init(cc, false), &cc.egui_ctx));
+        harness.run();
+        harness.key_press(Key::G);
+        harness.run();
+        harness.input_mut().events.push(egui::Event::Text("v1".into()));
+        harness.run();
+        harness.key_press(Key::ArrowDown);
+        harness.run();
+        assert_eq!(harness.state().sel, 0);
+        assert_eq!(harness.state().id_text, "v1");
+        harness.key_press(Key::Escape);
+        harness.run();
+        harness.key_press(Key::ArrowDown);
+        harness.run();
+        assert_eq!(harness.state().sel, 1);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
