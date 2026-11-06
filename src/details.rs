@@ -463,7 +463,12 @@ impl Repo {
         let c = &self.commits[row];
         let mut b = Builder { lines: vec![], files: vec![("Comments".into(), 0)] };
         let ctx = format!("-U{}", opts.context);
-        let mut diff_args: Vec<&str> = vec!["-p", "--textconv", "--submodule", "-C", &ctx];
+        let mut diff_args: Vec<&str> = vec!["-p", "--textconv", "--submodule", &ctx];
+        // copy detection against each parent makes a combined diff, which
+        // is usually empty, take 0.3s instead of none on a big repo
+        if c.parents().nth(1).is_none() {
+            diff_args.push("-C");
+        }
         if opts.ignore_space {
             diff_args.push("-w");
         }
