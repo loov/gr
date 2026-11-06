@@ -72,14 +72,18 @@ impl Theme {
         self.bg.lerp_to_gamma(self.fg, t)
     }
 
-    /// Secondary text: ANSI bright black, unless it is too close to the background.
+    /// `c` as text: moved toward the foreground until it has the WCAG 4.5:1
+    /// contrast for body text against the background.
+    fn readable(&self, c: Color32) -> Color32 {
+        (0..=10)
+            .map(|t| c.lerp_to_gamma(self.fg, t as f32 / 10.0))
+            .find(|&c| contrast(c, self.bg) >= 4.5)
+            .unwrap_or(self.fg)
+    }
+
+    /// Secondary text: ANSI bright black, made readable.
     fn weak(&self) -> Color32 {
-        let p8 = self.palette[8];
-        if (luma(p8) - luma(self.bg)).abs() > 0.2 {
-            p8
-        } else {
-            self.mix(0.5)
-        }
+        self.readable(self.palette[8])
     }
 
     /// Stand-ins for the core's gitk colours: graph palette, diff colours
@@ -130,8 +134,8 @@ impl Theme {
         v.widgets.inactive.bg_stroke = Stroke::new(1.0, self.mix(0.4));
         v.selection.bg_fill = self.selection;
         v.selection.stroke = Stroke::new(1.0, self.fg);
-        v.hyperlink_color = self.palette[4];
-        v.error_fg_color = self.palette[1];
+        v.hyperlink_color = self.readable(self.palette[4]);
+        v.error_fg_color = self.readable(self.palette[1]);
         v.warn_fg_color = self.palette[3];
         v
     }
@@ -149,6 +153,16 @@ impl Theme {
 
 fn luma(c: Color32) -> f32 {
     (0.2126 * c.r() as f32 + 0.7152 * c.g() as f32 + 0.0722 * c.b() as f32) / 255.0
+}
+
+/// WCAG contrast ratio of two colours, from 1 to 21.
+fn contrast(a: Color32, b: Color32) -> f32 {
+    let lum = |c: Color32| {
+        let l = egui::Rgba::from(c);
+        0.2126 * l.r() + 0.7152 * l.g() + 0.0722 * l.b()
+    };
+    let (x, y) = (lum(a), lum(b));
+    (x.max(y) + 0.05) / (x.min(y) + 0.05)
 }
 
 fn key(dark: bool) -> Id {
@@ -188,5 +202,18 @@ mod tests {
         assert_eq!(dark.map([0, 0, 255]), Some(Color32::from_rgb(0x58, 0xa6, 0xff)));
         assert_eq!(light.bg, Color32::WHITE);
         assert_eq!(all().len(), THEMES.matches("theme = ").count());
+    }
+
+    #[test]
+    fn secondary_text_is_readable() {
+        assert!((contrast(Color32::BLACK, Color32::WHITE) - 21.0).abs() < 0.01);
+        for t in all() {
+            let v = t.visuals();
+            for c in [v.weak_text_color(), v.hyperlink_color, v.error_fg_color] {
+                // a theme whose foreground is itself below 4.5 gets its foreground
+                let want = contrast(t.fg, t.bg).min(4.5);
+                assert!(contrast(c, t.bg) >= want - 0.01, "{}: {c:?}", t.name);
+            }
+        }
     }
 }
