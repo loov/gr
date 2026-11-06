@@ -7,7 +7,7 @@ use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::{git, id_key};
+use crate::{git, id_key, Commit};
 
 pub(crate) struct Reach {
     /// (id key, index), sorted. Lookups trust the 64-bit key alone; a
@@ -58,8 +58,38 @@ impl Name {
 }
 
 impl Reach {
+    /// Reads the graph of every commit reachable from a ref.
     pub(crate) fn read(cwd: &PathBuf) -> Option<Reach> {
         let list = git(cwd, &["rev-list", "--all", "--parents", "--timestamp"]).ok()?;
+        // "<committer time> <id> <parents>..."
+        let mut dates = vec![];
+        let lines: Vec<Vec<u64>> = list
+            .lines()
+            .map(|l| {
+                let (t, ids) = l.split_once(' ').unwrap_or(("0", l));
+                dates.push(t.parse().unwrap_or(0));
+                ids.split(' ').filter_map(id_key).collect()
+            })
+            .collect();
+        Reach::build(cwd, dates, lines)
+    }
+
+    /// The graph of `commits`, which must hold every commit reachable from
+    /// a ref with its real parents, as `git log --all` lists them.
+    pub(crate) fn graph(commits: &[Commit]) -> (Vec<i64>, Vec<Vec<u64>>) {
+        commits
+            .iter()
+            .filter(|c| !c.is_fake())
+            .map(|c| {
+                let ids = std::iter::once(c.id()).chain(c.parents());
+                (c.committer_time, ids.filter_map(id_key).collect())
+            })
+            .unzip()
+    }
+
+    /// `lines` holds each commit's id key followed by its parents' keys,
+    /// `dates` their committer dates.
+    pub(crate) fn build(cwd: &PathBuf, dates: Vec<i64>, lines: Vec<Vec<u64>>) -> Option<Reach> {
         let refs = git(
             cwd,
             &[
@@ -71,16 +101,6 @@ impl Reach {
             ],
         )
         .ok()?;
-        // "<committer time> <id> <parents>..."
-        let mut dates = vec![];
-        let lines: Vec<Vec<u64>> = list
-            .lines()
-            .map(|l| {
-                let (t, ids) = l.split_once(' ').unwrap_or(("0", l));
-                dates.push(t.parse().unwrap_or(0));
-                ids.split(' ').filter_map(id_key).collect()
-            })
-            .collect();
         let mut keys: Vec<(u64, u32)> =
             lines.iter().enumerate().filter_map(|(i, l)| Some((*l.first()?, i as u32))).collect();
         keys.sort_unstable();
@@ -337,5 +357,46 @@ impl Reach {
         }
         // min_by_key keeps the first of equals, i.e. the first found
         found.iter().min_by_key(|t| t.depth).map(|t| t.name)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Repo;
+
+    #[test]
+    fn graph_from_log_matches_rev_list() {
+        let (dir, sh) = crate::tests::scratch("reach");
+        let commit = |m: &str| sh(&["commit", "-q", "--allow-empty", "-m", m]);
+        commit("a");
+        sh(&["tag", "-a", "v1", "-m", "v1"]);
+        sh(&["branch", "topic"]);
+        commit("b");
+        sh(&["checkout", "-q", "topic"]);
+        commit("c");
+        sh(&["tag", "light"]);
+        sh(&["checkout", "-q", "main"]);
+        sh(&["merge", "-q", "--no-ff", "-m", "m", "topic"]);
+        commit("d");
+        sh(&["tag", "-a", "v2", "-m", "v2"]);
+        let repo = Repo::open(&dir, &[]).unwrap();
+        let (a, b) = (repo.reach().unwrap(), &Reach::read(&dir).unwrap());
+        assert_eq!(a.keys.len(), b.keys.len());
+        assert!(repo.commits.iter().any(|c| a.precedes(c.id()).is_some_and(|t| !t.is_empty())));
+        let key = |r: &Reach, i: u32| r.keys.iter().find(|k| k.1 == i).unwrap().0;
+        for c in &repo.commits {
+            let id = c.id();
+            assert_eq!(a.branches_containing(id), b.branches_containing(id));
+            assert_eq!(a.precedes(id), b.precedes(id));
+            let parents = |r: &Reach| -> Vec<u64> {
+                r.parents_of(id).unwrap().into_iter().map(|p| key(r, p)).collect()
+            };
+            assert_eq!(parents(a), parents(b));
+            let describe =
+                |r: &Reach| r.describe(r.index(id_key(id).unwrap()).unwrap()).map(String::from);
+            assert_eq!(describe(a), describe(b));
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

@@ -345,15 +345,18 @@ impl Repo {
             args.push("--all");
             args.extend(stashes.lines());
         }
+        // the log lists every commit with its real parents, so the graph
+        // need not be read again
+        let whole_graph = revs.is_empty() && paths.is_empty();
         args.extend(revs);
         // no diff after the message, including the one -L prints
         args.push("-s");
         args.push("--");
         args.extend(paths.iter().map(String::as_str));
-        let reach_job = {
+        let reach_job = (!whole_graph).then(|| {
             let cwd = cwd.clone();
             std::thread::spawn(move || reach::Reach::read(&cwd))
-        };
+        });
         // the other git calls are quick; run them while git log walks the history
         let (commits, side) = std::thread::scope(|s| {
             let side = s.spawn(|| Side::read(&cwd, &paths));
@@ -366,6 +369,10 @@ impl Repo {
         if commits.is_empty() {
             return Err(io::Error::other("No commits selected"));
         }
+        let reach_job = reach_job.unwrap_or_else(|| {
+            let (cwd, (dates, lines)) = (cwd.clone(), reach::Reach::graph(&commits));
+            std::thread::spawn(move || reach::Reach::build(&cwd, dates, lines))
+        });
 
         let Side { mut head, head_branch, view_head, staged, unstaged, refs } = side;
         let mut fake = vec![];
@@ -1358,7 +1365,7 @@ mod tests {
     }
 
     /// A fresh repository in the temp dir and a git runner for it.
-    fn scratch(name: &str) -> (PathBuf, impl Fn(&[&str])) {
+    pub(crate) fn scratch(name: &str) -> (PathBuf, impl Fn(&[&str])) {
         let dir = std::env::temp_dir().join(format!("gr-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
