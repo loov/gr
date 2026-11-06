@@ -638,29 +638,44 @@ impl App {
     }
 
     fn toolbar(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            if self.job.is_some() || self.loading.is_some() {
-                ui.spinner();
+        // the gear first, so it keeps the right edge
+        ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            if ui.button("⚙").on_hover_text("Settings").clicked() {
+                self.settings.open = true;
             }
-            if let Some((file, _)) = &self.file_hist {
-                ui.label(RichText::new(format!("History of {file}")).strong());
-                if ui.button("Show All").clicked() {
-                    self.file_history(None);
-                }
-                ui.separator();
-            }
-            self.id_bar(ui);
             ui.separator();
-            self.find_bar(ui);
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if ui.button("⚙").on_hover_text("Settings").clicked() {
-                    self.settings.open = true;
+            // in a narrow window the find bar takes a second row instead of
+            // running off the edge; the width is that of both bars, measured
+            let wide = ui.available_width() >= 1450.0;
+            ui.with_layout(Layout::top_down(Align::Min), |ui| {
+                ui.horizontal(|ui| {
+                    if self.job.is_some() || self.loading.is_some() {
+                        ui.spinner();
+                    }
+                    if let Some((file, _)) = &self.file_hist {
+                        ui.label(RichText::new(format!("History of {file}")).strong());
+                        if ui.button("Show All").clicked() {
+                            self.file_history(None);
+                        }
+                        ui.separator();
+                    }
+                    self.id_bar(ui);
+                    if wide {
+                        ui.separator();
+                        self.find_bar(ui);
+                    }
+                    self.status_label(ui);
+                });
+                if !wide {
+                    ui.horizontal(|ui| self.find_bar(ui));
                 }
-                ui.separator();
-                let err = ui.visuals().error_fg_color;
-                ui.add(egui::Label::new(RichText::new(&self.status).color(err)).truncate());
             });
         });
+    }
+
+    fn status_label(&self, ui: &mut egui::Ui) {
+        let err = ui.visuals().error_fg_color;
+        ui.add(egui::Label::new(RichText::new(&self.status).color(err)).truncate());
     }
 
     fn find_bar(&mut self, ui: &mut egui::Ui) {
@@ -1574,7 +1589,10 @@ impl eframe::App for App {
         Panel::top("toolbar").frame(frame).show(ui, |ui| self.toolbar(ui));
         Panel::bottom("statusbar").frame(frame).show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.add_space((self.diff_left - ui.cursor().left()).max(0.0));
+                // under the diff, unless that pushes the controls off the
+                // edge; they are about 620 wide
+                let room = (ui.available_width() - 620.0).max(0.0);
+                ui.add_space((self.diff_left - ui.cursor().left()).clamp(0.0, room));
                 self.diff_bar(ui);
             });
         });
