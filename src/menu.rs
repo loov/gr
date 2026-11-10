@@ -91,7 +91,7 @@ mod native {
                             "settings",
                             "Settings…",
                             true,
-                            Some(Accelerator::new(Some(Modifiers::SUPER), Code::Comma)),
+                            Some(Accelerator::new(Modifiers::META, Code::Comma)),
                         ),
                         &P::separator(),
                         &P::services(None),
