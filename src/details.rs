@@ -485,7 +485,36 @@ impl Repo {
     /// Text for the details pane: commit header, message and diff.
     // Runs git synchronously on selection; move to a thread if huge diffs stall the UI.
     pub fn details(&self, row: usize, opts: &DiffOpts) -> Details {
-        let c = &self.commits[row];
+        self.patch_set_details(row, None, None, opts)
+    }
+
+    /// Like `details`, for a pull request's commit at `row`: its patch set
+    /// `set` (default the row's own), with the range-diff against patch set
+    /// `cmp` (default the one before).
+    pub fn patch_set_details(
+        &self,
+        row: usize,
+        set: Option<usize>,
+        cmp: Option<usize>,
+        opts: &DiffOpts,
+    ) -> Details {
+        let mut c = &self.commits[row];
+        let change = self.pr.as_ref().and_then(|p| p.find(c.id()));
+        let set = change.map(|(ch, v)| (ch, set.filter(|&s| ch.sets[s].is_some()).unwrap_or(v)));
+        let loaded;
+        if let Some(ps) = set.and_then(|(ch, s)| ch.sets[s].as_ref()).filter(|p| p.id != c.id()) {
+            match self.load_commit(&ps.id) {
+                Ok(l) => {
+                    loaded = l;
+                    c = &loaded;
+                }
+                Err(e) => {
+                    let mut b = Builder::new();
+                    b.push(format!("Error reading {}: {e}", ps.id), Kind::Hunk);
+                    return b.finish();
+                }
+            }
+        }
         let mut b = Builder::new();
         let ctx = format!("-U{}", opts.context);
         let mut diff_args: Vec<&str> = vec!["-p", "--textconv", "--submodule", &ctx];
@@ -521,7 +550,9 @@ impl Repo {
                 b.push(format!("    {}", c.subject()), Kind::Plain);
             } else {
                 self.header(&mut b, c);
-                self.revision(&mut b, c);
+                if let Some((ch, s)) = set {
+                    self.patch_set(&mut b, ch, s, cmp);
+                }
             }
             diff.join().unwrap_or_else(|_| Err(std::io::Error::other("git diff thread panicked")))
         });
@@ -598,24 +629,36 @@ impl Repo {
         }
     }
 
-    /// How a commit of a pull request changed since the previous version:
-    /// the patch it replaced and the diff between the two patches.
-    fn revision(&self, b: &mut Builder, c: &Commit) {
-        let Some(rev) = self.revisions.get(c.id()) else { return };
-        let since = format!("v{}", rev.version - 1);
+    /// Which patch set of `ch` this is, and its range-diff against patch
+    /// set `cmp`, or the one before.
+    fn patch_set(&self, b: &mut Builder, ch: &crate::pr::Change, set: usize, cmp: Option<usize>) {
+        let n = ch.sets.len();
         b.push("", Kind::Plain);
-        let Some(old) = &rev.old else {
-            b.push(format!("    New in v{}", rev.version), Kind::Plain);
+        let marks = ch.marks();
+        let what = match marks[set] {
+            crate::pr::Mark::New => "new".to_string(),
+            crate::pr::Mark::Same => format!("same patch as v{set}"),
+            _ => format!("changed since v{set}"),
+        };
+        b.push(format!("    Patch set v{} of {n}, {what}", set + 1), Kind::Plain);
+        let Some(cmp) = cmp.filter(|&k| k != set && ch.sets[k].is_some()).or(ch.before(set)) else {
             return;
         };
-        let row = self.index_of(old);
-        let what = if rev.diff.is_empty() { "Same patch as" } else { "Changed from" };
-        b.link(format!("    {what} {since}: {old}"), row);
-        if rev.diff.is_empty() {
+        let (old, new) = (
+            &ch.sets[cmp].as_ref().expect("checked").id,
+            &ch.sets[set].as_ref().expect("checked").id,
+        );
+        let since = format!("v{}", cmp + 1);
+        let diff = match crate::pr::interdiff(&self.cwd, old, new) {
+            Ok(d) => d,
+            Err(e) => vec![format!("@@ range-diff: {e}")],
+        };
+        if diff.is_empty() {
+            b.push(format!("    Same patch as {since}"), Kind::Plain);
             return;
         }
         b.start_file(&format!("Changes since {since}"));
-        for l in &rev.diff {
+        for l in &diff {
             let kind = match l.as_bytes().first() {
                 Some(b'-') => Kind::Del,
                 Some(b'+') => Kind::Add,

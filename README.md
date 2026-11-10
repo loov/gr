@@ -16,11 +16,13 @@ A git history viewer in Rust and egui, based on gitk.
 
 Run with `cargo run --release -- [repo] [git log args] [-- paths]`, pinned to rustc 1.95 via `rust-toolchain.toml`.
 
-`gr pr <number> [repo]` shows the versions of a GitHub pull request, using
-`gh` to find them: the head before each force-push and the current head,
-fetched into `refs/pr/<number>/v1`, `v2`, ... Each commit's details say
-which patch it replaced in the version before and show the range-diff
-between the two.
+`gr gh pr <number> [repo]` shows a GitHub pull request the way Gerrit shows
+patch sets. It uses `gh` to find the head before each force-push and the
+current head, fetches them into `refs/gh/pr/<number>/v1`, `v2`, ..., and
+lists the commits of the newest. `git range-diff` pairs each commit with
+its earlier revisions; the list marks the versions each patch is in and
+whether it changed, and the bar under the diff picks the patch set to show
+and the one to compare it with.
 
 ## License
 

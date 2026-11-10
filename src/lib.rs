@@ -210,9 +210,12 @@ pub struct Repo {
     /// The whole commit graph, loaded on a thread started by `open`.
     reach_job: RefCell<Option<std::thread::JoinHandle<Option<reach::Reach>>>>,
     reach: OnceCell<Option<reach::Reach>>,
-    /// For a pull request's versions, how each commit changed.
-    pub(crate) revisions: HashMap<String, pr::Revision>,
+    /// The pull request whose newest version this shows.
+    pub pr: Option<pr::Pr>,
 }
+
+/// The `git log` format `parse_record` reads.
+const LOG_FORMAT: &str = "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%cn%x1f%ce%x1f%ct%x1f%B";
 
 pub(crate) fn git(dir: &PathBuf, args: &[&str]) -> io::Result<String> {
     let out = Command::new("git")
@@ -329,7 +332,7 @@ impl Repo {
             "--no-show-signature",
             "--encoding=UTF-8",
             // raw times: formatting them here is cheaper than git's format-local
-            "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%cn%x1f%ce%x1f%ct%x1f%B",
+            LOG_FORMAT,
         ];
         let (revs, paths) = match log_args.iter().position(|a| a == "--") {
             Some(i) => (&log_args[..i], log_args[i + 1..].to_vec()),
@@ -362,13 +365,13 @@ impl Repo {
             std::thread::spawn(move || reach::Reach::read(&cwd))
         });
         // the other git calls are quick; run them while git log walks the history
-        let (commits, side, revisions) = std::thread::scope(|s| {
+        let (commits, side, pr) = std::thread::scope(|s| {
             let side = s.spawn(|| Side::read(&cwd, &paths));
-            let revisions = s.spawn(|| pr::revisions(&cwd, &pr_revs));
+            let pr = s.spawn(|| pr::Pr::read(&cwd, &pr_revs));
             (
                 git_log(&cwd, &args),
                 side.join().expect("Side::read panicked"),
-                revisions.join().expect("pr::revisions panicked"),
+                pr.join().expect("Pr::read panicked"),
             )
         });
         let mut commits = commits?;
@@ -416,7 +419,7 @@ impl Repo {
             near: RefCell::default(),
             reach_job: RefCell::new(Some(reach_job)),
             reach: OnceCell::new(),
-            revisions,
+            pr,
             paths,
             head_row: None,
             by_id: vec![],
@@ -457,6 +460,12 @@ impl Repo {
         }
         repo.snapshots = snapshots;
         Ok(repo)
+    }
+
+    /// The commit `id`, which need not be one of `commits`.
+    pub(crate) fn load_commit(&self, id: &str) -> io::Result<Commit> {
+        let args = ["log", "-1", "-z", "--no-show-signature", "--encoding=UTF-8", LOG_FORMAT, id];
+        git_log(&self.cwd, &args)?.pop().ok_or_else(|| io::Error::other(format!("no commit {id}")))
     }
 
     /// The whole commit graph, waiting for its loader thread on first use.

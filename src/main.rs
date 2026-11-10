@@ -11,6 +11,7 @@ mod settings;
 mod theme;
 
 use egui_extras::{Column, TableBuilder};
+use gr::pr::Mark;
 use gr::{
     Annotations, Details, Dir, Field, History, Hit, Location, Locations, Mode, Query, RefKind,
     Repo, Rgb, Seg, Visit, Wrap, REMOTE_PREFIX,
@@ -159,6 +160,10 @@ struct App {
     diff_sel: Option<DiffSel>,
     /// The diff line and side the context menu was opened on.
     diff_menu: Option<(usize, usize)>,
+    /// The pull request patch set to show instead of the selected
+    /// commit's own, and the one to compare it with.
+    patch_set: Option<usize>,
+    patch_cmp: Option<usize>,
     history: History,
     id_text: String,
     status: String,
@@ -228,6 +233,8 @@ impl App {
             diff_goto: None,
             diff_sel: None,
             diff_menu: None,
+            patch_set: None,
+            patch_cmp: None,
             history: History::default(),
             id_text: String::new(),
             status: String::new(),
@@ -265,8 +272,12 @@ impl App {
             return;
         }
         let row = row.min(self.repo.commits.len() - 1);
+        if row != self.sel {
+            (self.patch_set, self.patch_cmp) = (None, None);
+        }
         self.sel = row;
-        self.raw = self.repo.details(row, &self.settings.diff);
+        self.raw =
+            self.repo.patch_set_details(row, self.patch_set, self.patch_cmp, &self.settings.diff);
         self.show_details();
         // a reload selects again; keep what is being typed
         if !self.ctx.memory(|m| m.has_focus(Id::unique(ID_EDIT))) {
@@ -816,6 +827,7 @@ impl App {
                         hit != Hit::No,
                         notes.has(c.id(), "ok"),
                         &done,
+                        repo.pr.as_ref().and_then(|p| p.find(c.id())).map(|(ch, _)| ch.marks()),
                         now,
                     )
                 });
@@ -1223,6 +1235,47 @@ impl App {
         }
     }
 
+    /// For a pull request's commit: buttons for each patch set to show and
+    /// to compare with, marked by what changed in each.
+    fn patch_set_bar(&mut self, ui: &mut egui::Ui) {
+        let Some(pr) = &self.repo.pr else { return };
+        let Some((ch, own)) = pr.find(self.repo.commits[self.sel].id()) else { return };
+        let set = self.patch_set.filter(|&s| ch.sets[s].is_some()).unwrap_or(own);
+        let cmp = self.patch_cmp.filter(|&k| k != set && ch.sets[k].is_some()).or(ch.before(set));
+        let marks = ch.marks();
+        let (mut new_set, mut new_cmp) = (None, None);
+        ui.horizontal(|ui| {
+            ui.add_space((self.diff_left - ui.cursor().left()).max(0.0));
+            ui.label("Patch set:");
+            for (k, &m) in marks.iter().enumerate() {
+                if m == Mark::Absent {
+                    continue;
+                }
+                let r = ui.selectable_label(k == set, mark_text(ui, k, m));
+                if r.on_hover_text(mark_tip(m)).clicked() {
+                    new_set = Some(k);
+                }
+            }
+            ui.add_space(12.0);
+            ui.label("Compare with:");
+            for (k, &m) in marks.iter().enumerate().take(set) {
+                if m == Mark::Absent {
+                    continue;
+                }
+                if ui.selectable_label(Some(k) == cmp, format!("v{}", k + 1)).clicked() {
+                    new_cmp = Some(k);
+                }
+            }
+        });
+        if let Some(k) = new_set {
+            (self.patch_set, self.patch_cmp) = (Some(k), None);
+            self.select(self.sel);
+        } else if let Some(k) = new_cmp {
+            self.patch_cmp = Some(k);
+            self.select(self.sel);
+        }
+    }
+
     fn diff_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             let opts = self.settings.diff.clone();
@@ -1551,6 +1604,28 @@ fn location_row(
 /// committer and short date on the second.
 /// `done` names the branches whose own commits are all ok; their labels get a ✓.
 /// Returns the name of the ref label under the pointer.
+/// Version `k` of a patch, coloured by `m`: the patch is new, changed,
+/// the same as in the version before, or not in this version.
+fn mark_text(ui: &egui::Ui, k: usize, m: Mark) -> egui::RichText {
+    let t = egui::RichText::new(format!("v{}", k + 1)).font(font(12.0, m != Mark::Same));
+    match m {
+        Mark::New => t.color(fg(ui, [0, 0x98, 0])),
+        Mark::Changed => t.color(fg(ui, [0xff, 0xa5, 0])),
+        Mark::Same => t.color(ui.visuals().weak_text_color()),
+        Mark::Absent => t.color(ui.visuals().weak_text_color()).strikethrough(),
+    }
+}
+
+fn mark_tip(m: Mark) -> &'static str {
+    match m {
+        Mark::New => "new in this version",
+        Mark::Changed => "changed in this version",
+        Mark::Same => "same patch as the version before",
+        Mark::Absent => "not in this version",
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn draw_commit_cell<'a>(
     ui: &mut egui::Ui,
     c: &'a gr::Commit,
@@ -1558,6 +1633,7 @@ fn draw_commit_cell<'a>(
     bold: bool,
     ok: bool,
     done: &std::collections::HashSet<&str>,
+    marks: Option<Vec<Mark>>,
     now: i64,
 ) -> Option<&'a str> {
     let rect = ui.max_rect();
@@ -1627,6 +1703,20 @@ fn draw_commit_cell<'a>(
         date_x -= g.size().x + 8.0;
         paint_text(p, date_x, y2, g, fg(ui, [0, 0x98, 0]));
     }
+    // the pull request versions this patch is in, newest last
+    if let Some(marks) = marks {
+        date_x -= 8.0;
+        for (k, &m) in marks.iter().enumerate().rev() {
+            let g = egui::WidgetText::from(mark_text(ui, k, m)).into_galley(
+                ui,
+                None,
+                f32::INFINITY,
+                egui::FontSelection::Default,
+            );
+            date_x -= g.size().x + 4.0;
+            p.galley(Pos2::new(date_x, y2 - g.size().y / 2.0), g, text);
+        }
+    }
     let name = galley(p, c.committer_name(), font(12.0, false), weak);
     // keep the name from running under the date
     p.with_clip_rect(Rect::from_x_y_ranges(rect.left()..=date_x - 8.0, rect.y_range())).galley(
@@ -1694,6 +1784,7 @@ impl eframe::App for App {
                 ui.add_space((self.diff_left - ui.cursor().left()).clamp(0.0, room));
                 self.diff_bar(ui);
             });
+            self.patch_set_bar(ui);
         });
         Panel::left("locations")
             .resizable(true)
@@ -1811,13 +1902,13 @@ fn init(cc: &eframe::CreationContext, system_fonts: bool) -> settings::Settings 
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    // gr pr <number> [repo]: the versions of a GitHub pull request
+    // gr gh pr <number> [repo]: the versions of a GitHub pull request
     let pr = match &args[..] {
-        [cmd, n, ..] if cmd == "pr" => n.parse::<u32>().ok(),
+        [gh, pr, n, ..] if gh == "gh" && pr == "pr" => n.parse::<u32>().ok(),
         _ => None,
     };
     let (dir, log_args) = match pr {
-        Some(_) => (args.get(2).cloned().unwrap_or_else(|| ".".into()), vec![]),
+        Some(_) => (args.get(3).cloned().unwrap_or_else(|| ".".into()), vec![]),
         None => (
             args.first().cloned().unwrap_or_else(|| ".".into()),
             args.get(1..).unwrap_or(&[]).to_vec(),
@@ -1945,6 +2036,54 @@ mod tests {
         harness.set_size(egui::Vec2::new(1100.0, 760.0));
         harness.run();
         harness.snapshot("settings");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn pull_request_snapshot() {
+        let dir = sample_repo("pr");
+        let date = "2001-02-03T05:00:00Z";
+        let sh = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .current_dir(&dir)
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_AUTHOR_DATE", date)
+                .env("GIT_COMMITTER_DATE", date)
+                .args(["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.com"])
+                .args(["-c", "commit.gpgSign=false"])
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "{args:?}");
+        };
+        let commit = |file: &str, text: &str, msg: &str| {
+            std::fs::write(dir.join(file), text).unwrap();
+            sh(&["add", file]);
+            sh(&["commit", "-q", "-m", msg]);
+        };
+        let lines: String = (1..10).map(|i| format!("line {i}\n")).collect();
+        sh(&["update-ref", "refs/gh/pr/7/base", "main"]);
+        sh(&["checkout", "-q", "-b", "pr", "main"]);
+        commit("a.txt", "a\n", "a: add");
+        commit("b.txt", &format!("{lines}one\n"), "b: add");
+        sh(&["update-ref", "refs/gh/pr/7/v1", "HEAD"]);
+        sh(&["reset", "-q", "--hard", "HEAD^"]);
+        commit("b.txt", &format!("{lines}two\n"), "b: add");
+        commit("c.txt", "c\n", "c: add");
+        sh(&["update-ref", "refs/gh/pr/7/v2", "HEAD"]);
+        sh(&["checkout", "-q", "main"]);
+        let args = ["refs/gh/pr/7/v2", "^refs/gh/pr/7/base"].map(String::from);
+        let repo = Repo::open(&dir, &args).unwrap();
+        let b = repo.commits.iter().position(|c| c.subject() == "b: add").unwrap();
+        let mut harness = Harness::builder()
+            .with_size([1600.0, 470.0])
+            .build_eframe(|cc| App::new(with_locations(repo), None, init(cc, false), &cc.egui_ctx));
+        harness.ctx.set_theme(egui::ThemePreference::Light);
+        harness.state_mut().select(b);
+        harness.run();
+        harness.snapshot("pull_request");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
