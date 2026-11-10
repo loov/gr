@@ -1820,6 +1820,8 @@ fn with_locations(repo: Repo) -> (Repo, Locations) {
     (repo, locs)
 }
 
+// one for the whole run, so its size does not matter
+#[allow(clippy::large_enum_variant)]
 enum Gr {
     Loading(Option<(Loading, Option<menu::Native>, settings::Settings)>),
     Ready(Box<App>),
@@ -1900,24 +1902,60 @@ fn init(cc: &eframe::CreationContext, system_fonts: bool) -> settings::Settings 
     settings::Settings::new(&cc.egui_ctx, |k| cc.storage.and_then(|s| s.get_string(k)))
 }
 
+/// A git history viewer, based on gitk.
+#[derive(clap::Parser, Debug, PartialEq)]
+#[command(args_conflicts_with_subcommands = true)]
+struct Cli {
+    #[command(subcommand)]
+    cmd: Option<Cmd>,
+    /// The repository.
+    #[arg(default_value = ".")]
+    repo: String,
+    /// Arguments for git log, then -- and paths.
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    log_args: Vec<String>,
+}
+
+#[derive(clap::Subcommand, Debug, PartialEq)]
+enum Cmd {
+    /// Changes on GitHub.
+    #[command(subcommand, alias = "gh")]
+    Github(Github),
+}
+
+#[derive(clap::Subcommand, Debug, PartialEq)]
+enum Github {
+    /// Show the versions of a pull request as Gerrit's patch sets.
+    Pr {
+        number: u32,
+        /// The repository.
+        #[arg(default_value = ".")]
+        repo: String,
+    },
+}
+
+impl Cli {
+    /// Parses `args`, the program name first.
+    fn try_from(args: Vec<String>) -> Result<Cli, clap::Error> {
+        let mut cli = <Cli as clap::Parser>::try_parse_from(&args)?;
+        // clap drops a first --, which tells git that paths follow; the
+        // repository is always the first argument, so take the rest as is
+        if cli.cmd.is_none() {
+            cli.log_args = args.get(2..).unwrap_or_default().to_vec();
+        }
+        Ok(cli)
+    }
+}
+
 fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    // gr github pr <number> [repo], or gr gh pr: the versions of a GitHub pull request
-    let pr = match &args[..] {
-        [gh, pr, n, ..] if (gh == "github" || gh == "gh") && pr == "pr" => n.parse::<u32>().ok(),
-        _ => None,
-    };
-    let (dir, log_args) = match pr {
-        Some(_) => (args.get(3).cloned().unwrap_or_else(|| ".".into()), vec![]),
-        None => (
-            args.first().cloned().unwrap_or_else(|| ".".into()),
-            args.get(1..).unwrap_or(&[]).to_vec(),
-        ),
-    };
+    let cli = Cli::try_from(std::env::args().collect()).unwrap_or_else(|e| e.exit());
     let loading = std::thread::spawn(move || {
-        let log_args = match pr {
-            Some(n) => gr::pr::fetch(&dir.as_str().into(), n)?,
-            None => log_args,
+        let (dir, log_args) = match cli.cmd {
+            Some(Cmd::Github(Github::Pr { number, repo })) => {
+                let args = gr::pr::fetch(&repo.as_str().into(), number)?;
+                (repo, args)
+            }
+            None => (cli.repo, cli.log_args),
         };
         Repo::open(&dir, &log_args).map(with_locations)
     });
@@ -2037,6 +2075,32 @@ mod tests {
         harness.run();
         harness.snapshot("settings");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn parses_the_command_line() {
+        let parse = |args: &[&str]| {
+            let args = std::iter::once("gr").chain(args.iter().copied());
+            Cli::try_from(args.map(String::from).collect()).unwrap()
+        };
+        let log = |repo: &str, args: &[&str]| Cli {
+            cmd: None,
+            repo: repo.into(),
+            log_args: args.iter().map(|s| s.to_string()).collect(),
+        };
+        assert_eq!(parse(&[]), log(".", &[]));
+        assert_eq!(parse(&["x"]), log("x", &[]));
+        let args = ["main", "--author", "ada", "-n", "5", "--", "src"];
+        assert_eq!(parse(&[&["x"], &args[..]].concat()), log("x", &args));
+        assert_eq!(parse(&["x", "--all"]), log("x", &["--all"]));
+        assert_eq!(parse(&["x", "--", "src"]), log("x", &["--", "src"]));
+        let pr = |repo: &str| Cli {
+            cmd: Some(Cmd::Github(Github::Pr { number: 292, repo: repo.into() })),
+            repo: ".".into(),
+            log_args: vec![],
+        };
+        assert_eq!(parse(&["github", "pr", "292"]), pr("."));
+        assert_eq!(parse(&["gh", "pr", "292", "x"]), pr("x"));
     }
 
     #[test]

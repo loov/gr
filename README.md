@@ -14,7 +14,7 @@ A git history viewer in Rust and egui, based on gitk.
 - `vendor/winit/` – winit 0.30.13 (Apache-2.0), patched so the macOS
   press-and-hold accent menu works in text fields.
 
-Run with `cargo run --release -- [repo] [git log args] [-- paths]`, pinned to rustc 1.95 via `rust-toolchain.toml`.
+Run with `cargo run --release -- [repo] [git log args] [-- paths]` (`--help` lists the commands), pinned to rustc 1.95 via `rust-toolchain.toml`.
 
 `gr github pr <number> [repo]` (or `gr gh pr`) shows a GitHub pull request the way Gerrit shows
 patch sets. It uses `gh` to find the head before each force-push and the
