@@ -1,6 +1,6 @@
 # gr
 
-A git history viewer in Rust and egui, based on gitk.
+A git review tool in Rust and egui, based on gitk.
 
 - `src/lib.rs` – UI-free core: history loading, graph layout, commit details and
   diffs, find, goto, history. Shells out to `git`.
