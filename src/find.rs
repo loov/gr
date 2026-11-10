@@ -163,6 +163,7 @@ mod tests {
             near: Default::default(),
             reach_job: Default::default(),
             reach: Default::default(),
+            revisions: Default::default(),
             commits: vec![c("x", ""), c("hit", ""), c("y", ""), c("hit", "")],
             head_row: None,
             paths: vec![],

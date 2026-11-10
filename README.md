@@ -16,6 +16,12 @@ A git history viewer in Rust and egui, based on gitk.
 
 Run with `cargo run --release -- [repo] [git log args] [-- paths]`, pinned to rustc 1.95 via `rust-toolchain.toml`.
 
+`gr pr <number> [repo]` shows the versions of a GitHub pull request, using
+`gh` to find them: the head before each force-push and the current head,
+fetched into `refs/pr/<number>/v1`, `v2`, ... Each commit's details say
+which patch it replaced in the version before and show the range-diff
+between the two.
+
 ## License
 
 GPL-3.0-or-later. gitk, which it is based on, is GPL-2.0-or-later. See `LICENSE`.

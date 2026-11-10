@@ -7,6 +7,7 @@ mod details;
 mod find;
 mod graph;
 mod locations;
+pub mod pr;
 mod reach;
 mod watch;
 
@@ -209,6 +210,8 @@ pub struct Repo {
     /// The whole commit graph, loaded on a thread started by `open`.
     reach_job: RefCell<Option<std::thread::JoinHandle<Option<reach::Reach>>>>,
     reach: OnceCell<Option<reach::Reach>>,
+    /// For a pull request's versions, how each commit changed.
+    pub(crate) revisions: HashMap<String, pr::Revision>,
 }
 
 pub(crate) fn git(dir: &PathBuf, args: &[&str]) -> io::Result<String> {
@@ -348,6 +351,7 @@ impl Repo {
         // the log lists every commit with its real parents, so the graph
         // need not be read again
         let whole_graph = revs.is_empty() && paths.is_empty();
+        let pr_revs = revs.clone();
         args.extend(revs);
         // no diff after the message, including the one -L prints
         args.push("-s");
@@ -358,9 +362,14 @@ impl Repo {
             std::thread::spawn(move || reach::Reach::read(&cwd))
         });
         // the other git calls are quick; run them while git log walks the history
-        let (commits, side) = std::thread::scope(|s| {
+        let (commits, side, revisions) = std::thread::scope(|s| {
             let side = s.spawn(|| Side::read(&cwd, &paths));
-            (git_log(&cwd, &args), side.join().expect("Side::read panicked"))
+            let revisions = s.spawn(|| pr::revisions(&cwd, &pr_revs));
+            (
+                git_log(&cwd, &args),
+                side.join().expect("Side::read panicked"),
+                revisions.join().expect("pr::revisions panicked"),
+            )
         });
         let mut commits = commits?;
         if commits.is_empty() && default_revs && side.head.is_empty() {
@@ -407,6 +416,7 @@ impl Repo {
             near: RefCell::default(),
             reach_job: RefCell::new(Some(reach_job)),
             reach: OnceCell::new(),
+            revisions,
             paths,
             head_row: None,
             by_id: vec![],

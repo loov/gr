@@ -521,6 +521,7 @@ impl Repo {
                 b.push(format!("    {}", c.subject()), Kind::Plain);
             } else {
                 self.header(&mut b, c);
+                self.revision(&mut b, c);
             }
             diff.join().unwrap_or_else(|_| Err(std::io::Error::other("git diff thread panicked")))
         });
@@ -594,6 +595,35 @@ impl Repo {
             }
             b.push_styled(text, Kind::Plain, plain(), links);
             b.lines.last_mut().expect("just pushed").syntax = syntax;
+        }
+    }
+
+    /// How a commit of a pull request changed since the previous version:
+    /// the patch it replaced and the diff between the two patches.
+    fn revision(&self, b: &mut Builder, c: &Commit) {
+        let Some(rev) = self.revisions.get(c.id()) else { return };
+        let since = format!("v{}", rev.version - 1);
+        b.push("", Kind::Plain);
+        let Some(old) = &rev.old else {
+            b.push(format!("    New in v{}", rev.version), Kind::Plain);
+            return;
+        };
+        let row = self.index_of(old);
+        let what = if rev.diff.is_empty() { "Same patch as" } else { "Changed from" };
+        b.link(format!("    {what} {since}: {old}"), row);
+        if rev.diff.is_empty() {
+            return;
+        }
+        b.start_file(&format!("Changes since {since}"));
+        for l in &rev.diff {
+            let kind = match l.as_bytes().first() {
+                Some(b'-') => Kind::Del,
+                Some(b'+') => Kind::Add,
+                Some(b'@') => Kind::Hunk,
+                Some(b'#') => Kind::FileHeader,
+                _ => Kind::Context,
+            };
+            b.push(expand_tabs(l, 0), kind);
         }
     }
 

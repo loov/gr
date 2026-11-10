@@ -1810,10 +1810,26 @@ fn init(cc: &eframe::CreationContext, system_fonts: bool) -> settings::Settings 
 }
 
 fn main() {
-    let mut args = std::env::args().skip(1);
-    let dir = args.next().unwrap_or_else(|| ".".into());
-    let log_args: Vec<String> = args.collect();
-    let loading = std::thread::spawn(move || Repo::open(&dir, &log_args).map(with_locations));
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    // gr pr <number> [repo]: the versions of a GitHub pull request
+    let pr = match &args[..] {
+        [cmd, n, ..] if cmd == "pr" => n.parse::<u32>().ok(),
+        _ => None,
+    };
+    let (dir, log_args) = match pr {
+        Some(_) => (args.get(2).cloned().unwrap_or_else(|| ".".into()), vec![]),
+        None => (
+            args.first().cloned().unwrap_or_else(|| ".".into()),
+            args.get(1..).unwrap_or(&[]).to_vec(),
+        ),
+    };
+    let loading = std::thread::spawn(move || {
+        let log_args = match pr {
+            Some(n) => gr::pr::fetch(&dir.as_str().into(), n)?,
+            None => log_args,
+        };
+        Repo::open(&dir, &log_args).map(with_locations)
+    });
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("gr")
