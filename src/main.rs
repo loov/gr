@@ -1902,7 +1902,7 @@ fn init(cc: &eframe::CreationContext, system_fonts: bool) -> settings::Settings 
     settings::Settings::new(&cc.egui_ctx, |k| cc.storage.and_then(|s| s.get_string(k)))
 }
 
-/// A git history viewer, based on gitk.
+/// A git review tool.
 #[derive(clap::Parser, Debug, PartialEq)]
 #[command(args_conflicts_with_subcommands = true)]
 struct Cli {
