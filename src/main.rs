@@ -1902,9 +1902,9 @@ fn init(cc: &eframe::CreationContext, system_fonts: bool) -> settings::Settings 
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    // gr gh pr <number> [repo]: the versions of a GitHub pull request
+    // gr github pr <number> [repo], or gr gh pr: the versions of a GitHub pull request
     let pr = match &args[..] {
-        [gh, pr, n, ..] if gh == "gh" && pr == "pr" => n.parse::<u32>().ok(),
+        [gh, pr, n, ..] if (gh == "github" || gh == "gh") && pr == "pr" => n.parse::<u32>().ok(),
         _ => None,
     };
     let (dir, log_args) = match pr {

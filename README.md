@@ -16,7 +16,7 @@ A git history viewer in Rust and egui, based on gitk.
 
 Run with `cargo run --release -- [repo] [git log args] [-- paths]`, pinned to rustc 1.95 via `rust-toolchain.toml`.
 
-`gr gh pr <number> [repo]` shows a GitHub pull request the way Gerrit shows
+`gr github pr <number> [repo]` (or `gr gh pr`) shows a GitHub pull request the way Gerrit shows
 patch sets. It uses `gh` to find the head before each force-push and the
 current head, fetches them into `refs/gh/pr/<number>/v1`, `v2`, ..., and
 lists the commits of the newest. `git range-diff` pairs each commit with
