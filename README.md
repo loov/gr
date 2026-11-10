@@ -24,6 +24,12 @@ its earlier revisions; the list marks the versions each patch is in and
 whether it changed, and the bar under the diff picks the patch set to show
 and the one to compare it with.
 
+`gr gerrit cl <number> [repo] [--remote origin]` does the same for a
+Gerrit change: it lists the patch sets with `git ls-remote` from
+`refs/changes/`, fetches them into `refs/gerrit/cl/<number>/v1`, ..., and
+takes the remote's default branch as the base. Parent changes in a
+relation chain show up as commits of each version.
+
 ## License
 
 GPL-3.0-or-later. gitk, which it is based on, is GPL-2.0-or-later. See `LICENSE`.

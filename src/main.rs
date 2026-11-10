@@ -1921,6 +1921,23 @@ enum Cmd {
     /// Changes on GitHub.
     #[command(subcommand, alias = "gh")]
     Github(Github),
+    /// Changes on Gerrit.
+    #[command(subcommand)]
+    Gerrit(Gerrit),
+}
+
+#[derive(clap::Subcommand, Debug, PartialEq)]
+enum Gerrit {
+    /// Show the patch sets of a change.
+    Cl {
+        number: u32,
+        /// The repository.
+        #[arg(default_value = ".")]
+        repo: String,
+        /// The remote the change is on.
+        #[arg(long, default_value = "origin")]
+        remote: String,
+    },
 }
 
 #[derive(clap::Subcommand, Debug, PartialEq)]
@@ -1953,6 +1970,10 @@ fn main() {
         let (dir, log_args) = match cli.cmd {
             Some(Cmd::Github(Github::Pr { number, repo })) => {
                 let args = gr::pr::fetch(&repo.as_str().into(), number)?;
+                (repo, args)
+            }
+            Some(Cmd::Gerrit(Gerrit::Cl { number, repo, remote })) => {
+                let args = gr::pr::fetch_gerrit(&repo.as_str().into(), &remote, number)?;
                 (repo, args)
             }
             None => (cli.repo, cli.log_args),
@@ -2101,6 +2122,16 @@ mod tests {
         };
         assert_eq!(parse(&["github", "pr", "292"]), pr("."));
         assert_eq!(parse(&["gh", "pr", "292", "x"]), pr("x"));
+        let cl = Cli {
+            cmd: Some(Cmd::Gerrit(Gerrit::Cl {
+                number: 7,
+                repo: ".".into(),
+                remote: "upstream".into(),
+            })),
+            repo: ".".into(),
+            log_args: vec![],
+        };
+        assert_eq!(parse(&["gerrit", "cl", "7", "--remote", "upstream"]), cl);
     }
 
     #[test]

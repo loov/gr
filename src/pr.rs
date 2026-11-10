@@ -1,6 +1,8 @@
-//! Versions of a GitHub pull request, as Gerrit's patch sets: its head
-//! before each force-push and its current head, fetched into
-//! refs/gh/pr/<n>/v<k>, with the base branch in refs/gh/pr/<n>/base. `git
+//! Versions of a change under review, as Gerrit's patch sets. For a
+//! GitHub pull request, its head before each force-push and its current
+//! head, fetched into refs/gh/pr/<n>/v<k>, with the base branch in
+//! refs/gh/pr/<n>/base; for a Gerrit change, its patch sets, in
+//! refs/gerrit/cl/<n>/v<k>. `git
 //! range-diff` of each version against the one before chains the commits
 //! that are revisions of the same patch into a change.
 
@@ -78,8 +80,9 @@ impl Pr {
     /// None for other revisions or without a force-push.
     pub fn read(cwd: &PathBuf, revs: &[&str]) -> Option<Pr> {
         let (prefix, n) = revs.iter().find_map(|r| {
-            let (prefix, v) = r.strip_prefix("refs/gh/pr/")?.rsplit_once("/v")?;
-            Some((format!("refs/gh/pr/{prefix}"), v.parse::<usize>().ok()?))
+            let (prefix, v) = r.rsplit_once("/v")?;
+            (prefix.starts_with("refs/gh/pr/") || prefix.starts_with("refs/gerrit/cl/"))
+                .then(|| Some((prefix.to_string(), v.parse::<usize>().ok()?)))?
         })?;
         if n < 2 {
             return None;
@@ -147,14 +150,76 @@ pub fn fetch(cwd: &PathBuf, n: u32) -> io::Result<Vec<String>> {
     };
     let mut heads: Vec<&str> = lines.collect();
     heads.dedup();
-    let mut args = vec!["fetch".to_string(), "--no-tags".into(), "-q".into(), url.into()];
-    args.push(format!("+refs/heads/{base}:refs/gh/pr/{n}/base"));
+    fetch_versions(cwd, url, &format!("refs/heads/{base}"), &heads, &format!("refs/gh/pr/{n}"))
+}
+
+/// Fetches the patch sets of Gerrit change `n` from `remote`, with the
+/// remote's default branch as the base. Returns the `git log` arguments
+/// that show the newest.
+pub fn fetch_gerrit(cwd: &PathBuf, remote: &str, n: u32) -> io::Result<Vec<String>> {
+    let changes = format!("refs/changes/{:02}/{n}/", n % 100);
+    let list = git(cwd, &["ls-remote", remote, &format!("{changes}*")])?;
+    // the numbered refs; refs/changes/../meta holds the review
+    let mut sets: Vec<u32> = list
+        .lines()
+        .filter_map(|l| l.split('\t').nth(1)?.strip_prefix(&changes)?.parse().ok())
+        .collect();
+    sets.sort_unstable();
+    if sets.is_empty() {
+        return Err(io::Error::other(format!("no change {n} on {remote}")));
+    }
+    // a change may target another branch; the REST API would say which
+    let head = git(cwd, &["ls-remote", "--symref", remote, "HEAD"])?;
+    let base = head
+        .lines()
+        .find_map(|l| l.strip_prefix("ref: ")?.split('\t').next())
+        .ok_or_else(|| io::Error::other(format!("no default branch on {remote}")))?;
+    let heads: Vec<String> = sets.iter().map(|k| format!("{changes}{k}")).collect();
+    let heads: Vec<&str> = heads.iter().map(String::as_str).collect();
+    fetch_versions(cwd, remote, base, &heads, &format!("refs/gerrit/cl/{n}"))
+}
+
+/// Fetches `base` into `<prefix>/base` and `heads` into `<prefix>/v1`,
+/// `v2`, ... from `remote`. Returns the `git log` arguments that show
+/// the newest version without the base.
+fn fetch_versions(
+    cwd: &PathBuf,
+    remote: &str,
+    base: &str,
+    heads: &[&str],
+    prefix: &str,
+) -> io::Result<Vec<String>> {
+    let mut args = vec!["fetch".to_string(), "--no-tags".into(), "-q".into(), remote.into()];
+    args.push(format!("+{base}:{prefix}/base"));
     for (k, h) in heads.iter().enumerate() {
-        args.push(format!("+{h}:refs/gh/pr/{n}/v{}", k + 1));
+        args.push(format!("+{h}:{prefix}/v{}", k + 1));
     }
     git(cwd, &args.iter().map(String::as_str).collect::<Vec<_>>())?;
+    let newest = format!("{prefix}/v{}", heads.len());
+    let base = format!("{prefix}/base");
+    if let Some(before) = before_merge(cwd, &newest, &base) {
+        git(cwd, &["update-ref", &base, &before])?;
+    }
     // the newest version; the older ones are patch sets of its commits
-    Ok(vec![format!("refs/gh/pr/{n}/v{}", heads.len()), format!("^refs/gh/pr/{n}/base")])
+    Ok(vec![newest, format!("^{base}")])
+}
+
+/// For `newest` already merged into `base`, the commit of `base` just
+/// before the merge, so that the versions still have commits of their
+/// own: the first parent of the merge commit, or for a change put onto
+/// the branch as is, its parent, which is right for a one-commit
+/// Gerrit change. None while `newest` is not merged.
+fn before_merge(cwd: &PathBuf, newest: &str, base: &str) -> Option<String> {
+    git(cwd, &["merge-base", "--is-ancestor", newest, base]).ok()?;
+    let range = format!("{newest}..{base}");
+    let line = git(cwd, &["rev-list", "--first-parent", "--ancestry-path", &range]).ok()?;
+    if let Some(merge) = line.lines().last() {
+        let first = format!("{merge}^1");
+        if git(cwd, &["merge-base", "--is-ancestor", newest, &first]).is_err() {
+            return Some(first);
+        }
+    }
+    Some(format!("{newest}^"))
 }
 
 /// `git range-diff` output as (old commit, new commit, same patch).
@@ -215,6 +280,40 @@ mod tests {
         let b1 = text(Some(0));
         assert!(b1.contains("Patch set v1 of 2, new") && b1.contains("\n+1"), "{b1}");
         assert!(!b1.contains("Changes since"), "{b1}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn gerrit_patch_sets() {
+        // a repository standing in for Gerrit, with two patch sets of change 7
+        let (server, sh) = crate::tests::scratch("gerrit-server");
+        let commit = |text: &str| {
+            std::fs::write(server.join("f"), text).unwrap();
+            sh(&["add", "f"]);
+            sh(&["commit", "-q", "-m", "f: change"]);
+        };
+        let lines: String = (1..10).map(|i| format!("line {i}\n")).collect();
+        commit("base\n");
+        commit(&format!("{lines}one\n"));
+        sh(&["update-ref", "refs/changes/07/7/1", "HEAD"]);
+        sh(&["reset", "-q", "--hard", "HEAD^"]);
+        commit(&format!("{lines}two\n"));
+        sh(&["update-ref", "refs/changes/07/7/2", "HEAD"]);
+        sh(&["update-ref", "refs/changes/07/7/meta", "HEAD"]);
+        sh(&["reset", "-q", "--hard", "HEAD^"]);
+        let (dir, _) = crate::tests::scratch("gerrit-client");
+        let remote = server.to_str().unwrap();
+        let open = || {
+            let args = fetch_gerrit(&dir, remote, 7).unwrap();
+            let repo = crate::Repo::open(&dir, &args).unwrap();
+            let marks = repo.pr.as_ref().unwrap().find(repo.commits[0].id()).unwrap().0.marks();
+            (repo.commits.len(), marks)
+        };
+        assert_eq!(open(), (1, vec![Mark::New, Mark::Changed]));
+        // once merged, the base stops before it
+        sh(&["reset", "-q", "--hard", "refs/changes/07/7/2"]);
+        assert_eq!(open(), (1, vec![Mark::New, Mark::Changed]));
+        std::fs::remove_dir_all(server).unwrap();
         std::fs::remove_dir_all(dir).unwrap();
     }
 
