@@ -307,15 +307,15 @@ mod tests {
         };
         // against the base, its own diff
         let b = text(None, None);
-        assert!(b.contains("Patch set v2 of 2, changed since v1"), "{b}");
-        assert!(b.contains("\n+line 1") && !b.contains("Changes since"), "{b}");
+        assert!(b.contains("Patch set: v2 of 2, changed since v1"), "{b}");
+        assert!(b.contains("\n+line 1") && !b.contains("Diff:"), "{b}");
         // against v1, only the line that changed
         let b = text(None, Some(0));
-        assert!(b.contains("Changes since v1") && b.contains("\n-1\n+2"), "{b}");
+        assert!(b.contains("Diff: changes since v1") && b.contains("\n-1\n+2"), "{b}");
         assert!(!b.contains("+line 1"), "{b}");
         // the first patch set, with its own diff
         let b1 = text(Some(0), None);
-        assert!(b1.contains("Patch set v1 of 2, new") && b1.contains("\n+1"), "{b1}");
+        assert!(b1.contains("Patch set: v1 of 2, new") && b1.contains("\n+1"), "{b1}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

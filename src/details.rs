@@ -481,6 +481,30 @@ fn parse_diff(b: &mut Builder, diff: &str) {
     }
 }
 
+/// Header lines naming patch set `set` of `ch` and, for `since`
+/// (k, replayed), what the diff compares it with.
+fn patch_set_lines(
+    ch: &crate::pr::Change,
+    set: usize,
+    since: Option<(usize, bool)>,
+) -> Vec<String> {
+    let what = match ch.marks()[set] {
+        crate::pr::Mark::New => "new".to_string(),
+        crate::pr::Mark::Same => format!("same patch as v{set}"),
+        _ => format!("changed since v{set}"),
+    };
+    let mut lines = vec![format!("Patch set: v{} of {}, {what}", set + 1, ch.sets.len())];
+    match since {
+        Some((k, true)) => {
+            lines.push(format!("Diff: changes since v{}, rebased onto this base", k + 1))
+        }
+        Some((k, false)) => lines
+            .push(format!("Diff: own; v{} does not apply on this base, range-diff below", k + 1)),
+        None => {}
+    }
+    lines
+}
+
 impl Repo {
     /// Text for the details pane: commit header, message and diff.
     // Runs git synchronously on selection; move to a thread if huge diffs stall the UI.
@@ -559,10 +583,11 @@ impl Repo {
             if c.is_fake() {
                 b.push(format!("    {}", c.subject()), Kind::Plain);
             } else {
-                self.header(&mut b, c);
-                if let Some((ch, s)) = set {
-                    let since = cmp.map(|(k, _)| (k, matches!(replayed, Some(Ok(_)))));
-                    self.patch_set(&mut b, ch, s, since);
+                let since = cmp.map(|(k, _)| (k, matches!(replayed, Some(Ok(_)))));
+                let patch = set.map(|(ch, s)| patch_set_lines(ch, s, since)).unwrap_or_default();
+                self.header(&mut b, c, &patch);
+                if let (Some((ch, s)), Some((k, false))) = (set, since) {
+                    self.range_diff(&mut b, ch, s, k);
                 }
             }
             diff.join().unwrap_or_else(|_| Err(std::io::Error::other("git diff thread panicked")))
@@ -583,8 +608,9 @@ impl Repo {
         b.finish()
     }
 
-    /// Author, parents, children, branches, tags and the message.
-    fn header(&self, b: &mut Builder, c: &Commit) {
+    /// Author, parents, children, branches, tags, the lines `extra` and
+    /// the message.
+    fn header(&self, b: &mut Builder, c: &Commit, extra: &[String]) {
         b.push(format!("Author: {}  {}", c.author(), c.author_date()), Kind::Plain);
         b.push(format!("Committer: {}  {}", c.committer(), c.committer_date()), Kind::Plain);
         let tags: Vec<&str> = c
@@ -613,6 +639,9 @@ impl Repo {
             .clone();
         for (label, names) in near {
             b.push(format!("{label}: {names}"), Kind::Plain);
+        }
+        for l in extra {
+            b.push(l.as_str(), Kind::Plain);
         }
         b.push("", Kind::Plain);
         // Each word that is a 6-40 char unique id prefix links to its commit.
@@ -643,29 +672,9 @@ impl Repo {
         }
     }
 
-    /// Which patch set of `ch` this is and, for `since` (k, replayed),
-    /// what the diff below compares it with. A patch that did not replay
-    /// gets the range-diff against `k` here, and its own diff below.
-    fn patch_set(
-        &self,
-        b: &mut Builder,
-        ch: &crate::pr::Change,
-        set: usize,
-        since: Option<(usize, bool)>,
-    ) {
-        let n = ch.sets.len();
-        b.push("", Kind::Plain);
-        let what = match ch.marks()[set] {
-            crate::pr::Mark::New => "new".to_string(),
-            crate::pr::Mark::Same => format!("same patch as v{set}"),
-            _ => format!("changed since v{set}"),
-        };
-        b.push(format!("    Patch set v{} of {n}, {what}", set + 1), Kind::Plain);
-        let Some((k, replayed)) = since else { return };
-        if replayed {
-            b.push(format!("    Changes since v{}, rebased onto this base", k + 1), Kind::Plain);
-            return;
-        }
+    /// The range-diff of patch set `set` of `ch` against `k`, for when the
+    /// older one does not replay onto the newer one's base.
+    fn range_diff(&self, b: &mut Builder, ch: &crate::pr::Change, set: usize, k: usize) {
         let (old, new) = (
             &ch.sets[k].as_ref().expect("checked").id,
             &ch.sets[set].as_ref().expect("checked").id,
