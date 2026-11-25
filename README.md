@@ -30,6 +30,11 @@ Gerrit change: it lists the patch sets with `git ls-remote` from
 takes the remote's default branch as the base. Parent changes in a
 relation chain show up as commits of each version.
 
+`gr range-diff <base> <rev>... [--repo .]` shows local revisions the same
+way, as `git range-diff <base> <rev>...` would compare them, oldest first:
+`gr range-diff main @{1} @` is the branch before and after a rebase. They
+are kept in `refs/gr/range-diff/v1`, ....
+
 ## License
 
 GPL-3.0-or-later. gitk, which it is based on, is GPL-2.0-or-later. See `LICENSE`.

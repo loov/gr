@@ -2,7 +2,8 @@
 //! GitHub pull request, its head before each force-push and its current
 //! head, fetched into refs/gh/pr/<n>/v<k>, with the base branch in
 //! refs/gh/pr/<n>/base; for a Gerrit change, its patch sets, in
-//! refs/gerrit/cl/<n>/v<k>. `git
+//! refs/gerrit/cl/<n>/v<k>; for local revisions, as `git range-diff
+//! <base> <rev>...` takes them, in refs/gr/range-diff/v<k>. `git
 //! range-diff` of each version against the one before chains the commits
 //! that are revisions of the same patch into a change.
 
@@ -81,7 +82,9 @@ impl Pr {
     pub fn read(cwd: &PathBuf, revs: &[&str]) -> Option<Pr> {
         let (prefix, n) = revs.iter().find_map(|r| {
             let (prefix, v) = r.rsplit_once("/v")?;
-            (prefix.starts_with("refs/gh/pr/") || prefix.starts_with("refs/gerrit/cl/"))
+            (prefix.starts_with("refs/gh/pr/")
+                || prefix.starts_with("refs/gerrit/cl/")
+                || prefix == RANGE_DIFF)
                 .then(|| Some((prefix.to_string(), v.parse::<usize>().ok()?)))?
         })?;
         if n < 2 {
@@ -124,6 +127,30 @@ pub fn interdiff(cwd: &PathBuf, old: &str, new: &str) -> io::Result<Vec<String>>
     let (a, b) = (format!("{old}^!"), format!("{new}^!"));
     let text = git(cwd, &["range-diff", "--no-color", "--creation-factor=999", &a, &b])?;
     Ok(text.lines().filter_map(|l| l.strip_prefix("    ")).map(String::from).collect())
+}
+
+/// Where `range_diff` keeps the versions.
+const RANGE_DIFF: &str = "refs/gr/range-diff";
+
+/// Stores the local revisions `revs`, oldest first, as versions of a
+/// change on `base`, the way `git range-diff <base> <rev>...` compares
+/// them; `main @{1} @` is a branch before and after a rebase. Returns
+/// the `git log` arguments that show the newest.
+pub fn range_diff(cwd: &PathBuf, base: &str, revs: &[String]) -> io::Result<Vec<String>> {
+    // resolve them all first, so that a rev naming one of our refs still
+    // means what it did
+    let ids = std::iter::once(base)
+        .chain(revs.iter().map(String::as_str))
+        .map(|r| {
+            Ok(git(cwd, &["rev-parse", "--verify", &format!("{r}^{{commit}}")])?.trim().to_string())
+        })
+        .collect::<io::Result<Vec<_>>>()?;
+    let base = format!("{RANGE_DIFF}/base");
+    git(cwd, &["update-ref", &base, &ids[0]])?;
+    for (k, id) in ids[1..].iter().enumerate() {
+        git(cwd, &["update-ref", &format!("{RANGE_DIFF}/v{}", k + 1), id])?;
+    }
+    Ok(vec![format!("{RANGE_DIFF}/v{}", revs.len()), format!("^{base}")])
 }
 
 /// Fetches the versions of pull request `n` of the GitHub repository `gh`
@@ -314,6 +341,28 @@ mod tests {
         sh(&["reset", "-q", "--hard", "refs/changes/07/7/2"]);
         assert_eq!(open(), (1, vec![Mark::New, Mark::Changed]));
         std::fs::remove_dir_all(server).unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn local_range_diff() {
+        let (dir, sh) = crate::tests::scratch("range-diff");
+        let commit = |text: &str| {
+            std::fs::write(dir.join("f"), text).unwrap();
+            sh(&["add", "f"]);
+            sh(&["commit", "-q", "-m", "f: change"]);
+        };
+        let lines: String = (1..10).map(|i| format!("line {i}\n")).collect();
+        commit("base\n");
+        commit(&format!("{lines}one\n"));
+        sh(&["branch", "old"]);
+        sh(&["reset", "-q", "--hard", "HEAD^"]);
+        commit(&format!("{lines}two\n"));
+        let revs = ["old".to_string(), "HEAD".into()];
+        let args = range_diff(&dir, "HEAD^", &revs).unwrap();
+        let repo = crate::Repo::open(&dir, &args).unwrap();
+        let marks = repo.pr.as_ref().unwrap().find(repo.commits[0].id()).unwrap().0.marks();
+        assert_eq!((repo.commits.len(), marks), (1, vec![Mark::New, Mark::Changed]));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -1924,6 +1924,18 @@ enum Cmd {
     /// Changes on Gerrit.
     #[command(subcommand)]
     Gerrit(Gerrit),
+    /// Show local revisions of a branch as patch sets, as git range-diff
+    /// <base> <rev>... compares them.
+    RangeDiff {
+        /// The commit the revisions are on, such as main.
+        base: String,
+        /// The revisions, oldest first, such as @{1} @.
+        #[arg(num_args = 2.., required = true)]
+        revs: Vec<String>,
+        /// The repository.
+        #[arg(long, default_value = ".")]
+        repo: String,
+    },
 }
 
 #[derive(clap::Subcommand, Debug, PartialEq)]
@@ -1974,6 +1986,10 @@ fn main() {
             }
             Some(Cmd::Gerrit(Gerrit::Cl { number, repo, remote })) => {
                 let args = gr::pr::fetch_gerrit(&repo.as_str().into(), &remote, number)?;
+                (repo, args)
+            }
+            Some(Cmd::RangeDiff { base, revs, repo }) => {
+                let args = gr::pr::range_diff(&repo.as_str().into(), &base, &revs)?;
                 (repo, args)
             }
             None => (cli.repo, cli.log_args),
@@ -2132,6 +2148,16 @@ mod tests {
             log_args: vec![],
         };
         assert_eq!(parse(&["gerrit", "cl", "7", "--remote", "upstream"]), cl);
+        let rd = Cli {
+            cmd: Some(Cmd::RangeDiff {
+                base: "main".into(),
+                revs: vec!["@{1}".into(), "@".into()],
+                repo: ".".into(),
+            }),
+            repo: ".".into(),
+            log_args: vec![],
+        };
+        assert_eq!(parse(&["range-diff", "main", "@{1}", "@"]), rd);
     }
 
     #[test]
