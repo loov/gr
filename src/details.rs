@@ -489,8 +489,8 @@ impl Repo {
     }
 
     /// Like `details`, for a pull request's commit at `row`: its patch set
-    /// `set` (default the row's own), with the range-diff against patch set
-    /// `cmp` (default the one before).
+    /// `set` (default the row's own), diffed against patch set `cmp`
+    /// replayed onto its base, or against its parent without `cmp`.
     pub fn patch_set_details(
         &self,
         row: usize,
@@ -527,7 +527,14 @@ impl Repo {
             diff_args.push("-w");
         }
 
-        let mut args = if c.id() == UNCOMMITTED_ID {
+        let cmp = set.and_then(|(ch, s)| {
+            let k = cmp.filter(|&k| k != s)?;
+            Some((k, &ch.sets[k].as_ref()?.id))
+        });
+        let replayed = cmp.map(|(_, old)| crate::pr::replay(&self.cwd, old, c.id()));
+        let mut args = if let Some(Ok(_)) = &replayed {
+            vec!["diff-tree", "-r", "--no-commit-id"]
+        } else if c.id() == UNCOMMITTED_ID {
             vec!["diff-files"]
         } else if c.id() == INDEX_ID {
             vec!["diff-index", "--cached", "--ignore-submodules=dirty"]
@@ -535,6 +542,9 @@ impl Repo {
             vec!["diff-tree", "-r", "--cc", "--no-commit-id", "--root"]
         };
         args.extend(&diff_args);
+        if let Some(Ok(tree)) = &replayed {
+            args.push(tree);
+        }
         match c.id() {
             UNCOMMITTED_ID => {}
             INDEX_ID => args.push("HEAD"),
@@ -551,12 +561,16 @@ impl Repo {
             } else {
                 self.header(&mut b, c);
                 if let Some((ch, s)) = set {
-                    self.patch_set(&mut b, ch, s, cmp);
+                    let since = cmp.map(|(k, _)| (k, matches!(replayed, Some(Ok(_)))));
+                    self.patch_set(&mut b, ch, s, since);
                 }
             }
             diff.join().unwrap_or_else(|_| Err(std::io::Error::other("git diff thread panicked")))
         });
         match diff {
+            Ok(d) if d.is_empty() && matches!(replayed, Some(Ok(_))) => {
+                b.push("    No changes", Kind::Plain)
+            }
             Ok(d) => parse_diff(&mut b, &d),
             Err(e) => b.push(format!("Error getting diffs: {e}"), Kind::Hunk),
         }
@@ -629,35 +643,38 @@ impl Repo {
         }
     }
 
-    /// Which patch set of `ch` this is, and its range-diff against patch
-    /// set `cmp`, or the one before.
-    fn patch_set(&self, b: &mut Builder, ch: &crate::pr::Change, set: usize, cmp: Option<usize>) {
+    /// Which patch set of `ch` this is and, for `since` (k, replayed),
+    /// what the diff below compares it with. A patch that did not replay
+    /// gets the range-diff against `k` here, and its own diff below.
+    fn patch_set(
+        &self,
+        b: &mut Builder,
+        ch: &crate::pr::Change,
+        set: usize,
+        since: Option<(usize, bool)>,
+    ) {
         let n = ch.sets.len();
         b.push("", Kind::Plain);
-        let marks = ch.marks();
-        let what = match marks[set] {
+        let what = match ch.marks()[set] {
             crate::pr::Mark::New => "new".to_string(),
             crate::pr::Mark::Same => format!("same patch as v{set}"),
             _ => format!("changed since v{set}"),
         };
         b.push(format!("    Patch set v{} of {n}, {what}", set + 1), Kind::Plain);
-        let Some(cmp) = cmp.filter(|&k| k != set && ch.sets[k].is_some()).or(ch.before(set)) else {
+        let Some((k, replayed)) = since else { return };
+        if replayed {
+            b.push(format!("    Changes since v{}, rebased onto this base", k + 1), Kind::Plain);
             return;
-        };
+        }
         let (old, new) = (
-            &ch.sets[cmp].as_ref().expect("checked").id,
+            &ch.sets[k].as_ref().expect("checked").id,
             &ch.sets[set].as_ref().expect("checked").id,
         );
-        let since = format!("v{}", cmp + 1);
         let diff = match crate::pr::interdiff(&self.cwd, old, new) {
             Ok(d) => d,
             Err(e) => vec![format!("@@ range-diff: {e}")],
         };
-        if diff.is_empty() {
-            b.push(format!("    Same patch as {since}"), Kind::Plain);
-            return;
-        }
-        b.start_file(&format!("Changes since {since}"));
+        b.start_file(&format!("Changes since v{} (range-diff)", k + 1));
         for l in &diff {
             let kind = match l.as_bytes().first() {
                 Some(b'-') => Kind::Del,

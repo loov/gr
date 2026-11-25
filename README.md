@@ -22,7 +22,11 @@ current head, fetches them into `refs/gh/pr/<number>/v1`, `v2`, ..., and
 lists the commits of the newest. `git range-diff` pairs each commit with
 its earlier revisions; the list marks the versions each patch is in and
 whether it changed, and the bar under the diff picks the patch set to show
-and the one to compare it with.
+and the one to compare it with. Compared with an older patch set, the
+diff shows only what the author changed: `git merge-tree` (git 2.40 or
+newer) replays the older patch onto the newer one's parent first, so a
+rebase adds nothing. A patch that no longer applies there gets the
+`git range-diff` instead.
 
 `gr gerrit cl <number> [repo] [--remote origin]` does the same for a
 Gerrit change: it lists the patch sets with `git ls-remote` from

@@ -1241,7 +1241,7 @@ impl App {
         let Some(pr) = &self.repo.pr else { return };
         let Some((ch, own)) = pr.find(self.repo.commits[self.sel].id()) else { return };
         let set = self.patch_set.filter(|&s| ch.sets[s].is_some()).unwrap_or(own);
-        let cmp = self.patch_cmp.filter(|&k| k != set && ch.sets[k].is_some()).or(ch.before(set));
+        let cmp = self.patch_cmp.filter(|&k| k != set && ch.sets[k].is_some());
         let marks = ch.marks();
         let (mut new_set, mut new_cmp) = (None, None);
         ui.horizontal(|ui| {
@@ -1258,12 +1258,15 @@ impl App {
             }
             ui.add_space(12.0);
             ui.label("Compare with:");
+            if ui.selectable_label(cmp.is_none(), "Base").clicked() {
+                new_cmp = Some(None);
+            }
             for (k, &m) in marks.iter().enumerate().take(set) {
                 if m == Mark::Absent {
                     continue;
                 }
                 if ui.selectable_label(Some(k) == cmp, format!("v{}", k + 1)).clicked() {
-                    new_cmp = Some(k);
+                    new_cmp = Some(Some(k));
                 }
             }
         });
@@ -1271,7 +1274,7 @@ impl App {
             (self.patch_set, self.patch_cmp) = (Some(k), None);
             self.select(self.sel);
         } else if let Some(k) = new_cmp {
-            self.patch_cmp = Some(k);
+            self.patch_cmp = k;
             self.select(self.sel);
         }
     }

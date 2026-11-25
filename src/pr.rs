@@ -63,11 +63,6 @@ impl Change {
             })
             .collect()
     }
-
-    /// The newest version before `v` that has this patch.
-    pub fn before(&self, v: usize) -> Option<usize> {
-        (0..v).rev().find(|&k| self.sets[k].is_some())
-    }
 }
 
 impl Pr {
@@ -120,8 +115,18 @@ impl Pr {
     }
 }
 
+/// The tree of patch `old` replayed onto the parent of `new`, so that a
+/// diff from it to `new` shows what changed in the patch and not what
+/// changed in the base under it. An error when the replay conflicts.
+pub fn replay(cwd: &PathBuf, old: &str, new: &str) -> io::Result<String> {
+    let (base, onto) = (format!("--merge-base={old}^"), format!("{new}^"));
+    // exits 1 on a conflict, which git() turns into an error
+    let out = git(cwd, &["merge-tree", "--write-tree", "--no-messages", &base, &onto, old])?;
+    Ok(out.lines().next().unwrap_or_default().to_string())
+}
+
 /// The range-diff of the patches of two commits, without its own header;
-/// empty when they are the same.
+/// empty when they are the same. For when `replay` conflicts.
 pub fn interdiff(cwd: &PathBuf, old: &str, new: &str) -> io::Result<Vec<String>> {
     // pair the two however much they differ
     let (a, b) = (format!("{old}^!"), format!("{new}^!"));
@@ -296,17 +301,21 @@ mod tests {
         assert_eq!(marks(0), [Mark::Absent, Mark::New]);
         assert_eq!(marks(1), [Mark::New, Mark::Changed]);
         assert_eq!(marks(2), [Mark::New, Mark::Same]);
-        let text = |set: Option<usize>| {
-            let d = repo.patch_set_details(1, set, None, &crate::DiffOpts::default());
+        let text = |set: Option<usize>, cmp: Option<usize>| {
+            let d = repo.patch_set_details(1, set, cmp, &crate::DiffOpts::default());
             d.lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join("\n")
         };
-        let b = text(None);
+        // against the base, its own diff
+        let b = text(None, None);
         assert!(b.contains("Patch set v2 of 2, changed since v1"), "{b}");
-        assert!(b.contains("Changes since v1") && b.contains("-+1") && b.contains("++2"), "{b}");
+        assert!(b.contains("\n+line 1") && !b.contains("Changes since"), "{b}");
+        // against v1, only the line that changed
+        let b = text(None, Some(0));
+        assert!(b.contains("Changes since v1") && b.contains("\n-1\n+2"), "{b}");
+        assert!(!b.contains("+line 1"), "{b}");
         // the first patch set, with its own diff
-        let b1 = text(Some(0));
+        let b1 = text(Some(0), None);
         assert!(b1.contains("Patch set v1 of 2, new") && b1.contains("\n+1"), "{b1}");
-        assert!(!b1.contains("Changes since"), "{b1}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -341,6 +350,46 @@ mod tests {
         sh(&["reset", "-q", "--hard", "refs/changes/07/7/2"]);
         assert_eq!(open(), (1, vec![Mark::New, Mark::Changed]));
         std::fs::remove_dir_all(server).unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn changes_since_a_rebased_version() {
+        let (dir, sh) = crate::tests::scratch("rebased");
+        let commit = |file: &str, text: &str, msg: &str| {
+            std::fs::write(dir.join(file), text).unwrap();
+            sh(&["add", file]);
+            sh(&["commit", "-q", "-m", msg]);
+        };
+        let lines: String = (1..10).map(|i| format!("line {i}\n")).collect();
+        commit("f", &lines, "base");
+        // range-diff pairs patches that mostly agree
+        let more: String = (1..10).map(|i| format!("more {i}\n")).collect();
+        commit("f", &format!("{lines}{more}one\n"), "f: add a line");
+        sh(&["branch", "old"]);
+        // upstream moves on under the patch, and the patch changes too
+        sh(&["reset", "-q", "--hard", "HEAD^"]);
+        commit("u", "upstream\n", "u: add");
+        sh(&["branch", "upstream"]);
+        commit("f", &format!("{lines}{more}two\n"), "f: add a line");
+        let revs = ["old".to_string(), "HEAD".into()];
+        let args = range_diff(&dir, "upstream", &revs).unwrap();
+        let repo = crate::Repo::open(&dir, &args).unwrap();
+        let d = repo.patch_set_details(0, None, Some(0), &crate::DiffOpts::default());
+        let text = d.lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join("\n");
+        assert!(text.contains("\n-one\n+two"), "{text}");
+        assert!(!text.contains("upstream"), "{text}");
+        // a patch that does not apply on the new base falls back to range-diff
+        sh(&["checkout", "-q", "--detach", "upstream"]);
+        let nine = lines.replace("line 9", "line nine");
+        commit("f", &nine, "f: spell out nine");
+        sh(&["branch", "upstream2"]);
+        commit("f", &format!("{nine}{more}two\n"), "f: add a line");
+        let args = range_diff(&dir, "upstream2", &revs).unwrap();
+        let repo = crate::Repo::open(&dir, &args).unwrap();
+        let d = repo.patch_set_details(0, None, Some(0), &crate::DiffOpts::default());
+        let text = d.lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join("\n");
+        assert!(text.contains("(range-diff)"), "{text}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
